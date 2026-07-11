@@ -55,10 +55,11 @@ struct HomeView: View {
                 }
             }
         }
-        // Present the TripBuilder sheet (FR3) when the ViewModel says so
+        // Present the real TripBuilder sheet (FR3)
         .sheet(isPresented: $viewModel.isShowingTripBuilder) {
-            // Placeholder until FR3 is built
-            TripBuilderPlaceholder(viewModel: viewModel)
+            TripBuilderView { confirmedTrip in
+                viewModel.setTrip(confirmedTrip)
+            }
         }
     }
 }
@@ -142,6 +143,9 @@ private struct TripExistsSection: View {
     let trip: Trip
     let viewModel: HomeViewModel
 
+    // Controls navigation to RouteOptimizerView
+    @State private var showingRoute = false
+
     var body: some View {
         VStack(spacing: 16) {
 
@@ -150,11 +154,11 @@ private struct TripExistsSection: View {
 
             // Action buttons row
             HStack(spacing: 12) {
-                // View full itinerary (FR5)
+                // View optimized route (FR4) — taps into RouteOptimizerView
                 Button {
-                    // TODO: navigate to itinerary (FR5)
+                    showingRoute = true
                 } label: {
-                    Label("View Itinerary", systemImage: "list.bullet.rectangle")
+                    Label("View Route", systemImage: "map.fill")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -187,55 +191,13 @@ private struct TripExistsSection: View {
             }
             .padding(.top, 4)
         }
-    }
-}
-
-// MARK: - Trip Builder Placeholder
-
-/// Temporary sheet shown until FR3 (TripBuilder) is built.
-/// Lets us test that the sheet presentation works correctly right now.
-private struct TripBuilderPlaceholder: View {
-    let viewModel: HomeViewModel
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Image(systemName: "hammer.fill")
-                    .font(.system(size: 50))
-                    .foregroundStyle(.orange)
-                Text("Trip Builder")
-                    .font(.title.bold())
-                Text("Coming in FR3!")
-                    .foregroundStyle(.secondary)
-
-                // For testing: add a sample trip so we can see the summary card
-                Button("Add Sample Trip (for testing)") {
-                    let sampleTrip = Trip(
-                        name: "My Day Out",
-                        date: .now,
-                        stops: [
-                            Stop(name: "Coffee Shop", address: "123 Main St", latitude: 37.77, longitude: -122.41, minutesToSpend: 30),
-                            Stop(name: "Golden Gate Park", address: "San Francisco, CA", latitude: 37.76, longitude: -122.45, minutesToSpend: 90),
-                            Stop(name: "Fisherman's Wharf", address: "Beach St, SF", latitude: 37.80, longitude: -122.41, minutesToSpend: 60)
-                        ],
-                        travelMode: .walking
-                    )
-                    viewModel.setTrip(sampleTrip)
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .navigationTitle("Plan Your Day")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
+        // NavigationLink destination — pushes RouteOptimizerView onto the stack
+        .navigationDestination(isPresented: $showingRoute) {
+            RouteOptimizerView(trip: trip)
         }
     }
 }
+
 
 #Preview {
     HomeView()

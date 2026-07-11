@@ -39,7 +39,8 @@ struct Stop: Identifiable, Codable {
 
     // Computed property — converts our stored lat/lng into a CLLocationCoordinate2D
     // which is what MapKit expects. Not stored, just computed on the fly.
-    var coordinate: CLLocationCoordinate2D {
+    // nonisolated: safe to call from any actor/thread since it only reads value types.
+    nonisolated var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
