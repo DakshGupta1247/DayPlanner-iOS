@@ -28,7 +28,7 @@ import CoreLocation  // gives us CLLocationCoordinate2D (lat/lng)
 // MARK: - Stop
 
 /// One place the user wants to visit during their day trip.
-struct Stop: Identifiable, Codable {
+struct Stop: Identifiable, Codable, Hashable {
 
     let id: UUID            // unique identifier, auto-generated
     var name: String        // display name, e.g. "Eiffel Tower"
@@ -59,7 +59,7 @@ struct Stop: Identifiable, Codable {
 // MARK: - Trip
 
 /// The full day plan — contains an ordered list of stops and metadata.
-struct Trip: Identifiable, Codable {
+struct Trip: Identifiable, Codable, Hashable {
 
     let id: UUID
     var name: String          // e.g. "Weekend in Paris"

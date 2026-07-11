@@ -28,6 +28,12 @@ final class HomeViewModel {
     // Controls whether the "Plan Your Day" sheet is presented
     var isShowingTripBuilder = false
 
+    init() {
+        // Auto-load today's trip from disk when the app opens.
+        // If the user already planned a trip today, it shows up immediately.
+        currentTrip = TripHistoryService.shared.loadTodaysTrip()
+    }
+
     // MARK: - Computed properties (used directly by the View)
 
     /// Greeting based on the current hour of the day
@@ -60,12 +66,15 @@ final class HomeViewModel {
         isShowingTripBuilder = true
     }
 
-    /// Called by TripBuilderView (FR3) when it creates a trip
+    /// Called by TripBuilderView (FR3) when it creates a trip.
+    /// Saves to history so it persists across app restarts.
     func setTrip(_ trip: Trip) {
         currentTrip = trip
+        TripHistoryService.shared.save(trip)   // persist to disk immediately
     }
 
-    /// Called when the user wants to clear/delete the current trip
+    /// Called when the user wants to clear/delete the current trip.
+    /// Keeps the trip in history — just removes it from "today".
     func clearTrip() {
         currentTrip = nil
     }
