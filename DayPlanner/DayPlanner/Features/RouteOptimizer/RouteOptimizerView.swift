@@ -173,6 +173,9 @@ private struct RouteSuccessCard: View {
     let route: ComputedRoute
     let trip: Trip
 
+    // Controls navigation to ItineraryView
+    @State private var showingItinerary = false
+
     var body: some View {
         VStack(spacing: 0) {
 
@@ -226,17 +229,37 @@ private struct RouteSuccessCard: View {
                     }
                 }
 
-                // — Start Trip button —
-                Button {
-                    // TODO: wire to FR6 Navigation
-                } label: {
-                    Label("Start Trip", systemImage: "location.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(.blue)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                // — View Itinerary + Start Trip buttons —
+                HStack(spacing: 12) {
+                    // View full day timeline (FR5)
+                    Button {
+                        showingItinerary = true
+                    } label: {
+                        Label("Itinerary", systemImage: "list.bullet.rectangle")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(.blue.opacity(0.1))
+                            .foregroundStyle(.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    // Start navigation (FR6)
+                    Button {
+                        // TODO: wire to FR6 Navigation
+                    } label: {
+                        Label("Start Trip", systemImage: "location.fill")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(.blue)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                }
+                // Push ItineraryView onto the NavigationStack
+                .navigationDestination(isPresented: $showingItinerary) {
+                    ItineraryView(trip: trip, route: route)
                 }
             }
             .padding(.horizontal, 20)
