@@ -17,6 +17,7 @@ struct HomeView: View {
     // to be stored as state to properly track changes in iOS 17+.
     @State private var viewModel = HomeViewModel()
     @State private var showingSettings = false
+    @State private var showingHistory = false
 
     var body: some View {
         NavigationStack {
@@ -46,6 +47,15 @@ struct HomeView: View {
             .navigationTitle("DayPlanner")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                // History button — navigates to FR7 Trip History
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingHistory = true
+                    } label: {
+                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    }
+                }
+                // Settings button in top-right (will link to FR8 later)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingSettings = true
@@ -53,6 +63,9 @@ struct HomeView: View {
                         Image(systemName: "gearshape")
                     }
                 }
+            }
+            .navigationDestination(isPresented: $showingHistory) {
+                TripHistoryView()
             }
         }
         // Settings sheet (FR8)
