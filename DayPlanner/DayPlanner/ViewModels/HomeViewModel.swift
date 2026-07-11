@@ -1,42 +1,34 @@
 //
 //  HomeViewModel.swift
-//  DayPlanner
+//  DayPlanner (PlanDay)
 //
-//  The ViewModel for the Home screen — sits between the Model (Trip) and the View (HomeView).
-//
-//  MVVM recap:
-//  - Model   = Trip.swift (pure data, no UI knowledge)
-//  - ViewModel = this file (holds state, has logic, no SwiftUI views)
-//  - View    = HomeView.swift (only reads from ViewModel, never does logic itself)
-//
-//  Why @Observable?
-//  @Observable (iOS 17+) is the modern replacement for ObservableObject + @Published.
-//  Any property you read inside a SwiftUI View body is automatically tracked —
-//  when it changes, only the views that read it re-render. Cleaner and faster.
+//  Home screen ViewModel — owns the full list of PlanItems and exposes
+//  today's focus item plus the full sorted list for the "All Plans" section.
 //
 
 import Foundation
-import Observation  // needed for @Observable
+import Observation
+import SwiftUI
 
 @Observable
 final class HomeViewModel {
 
-    // The current day's trip. nil means no trip has been planned yet.
-    // When this changes, HomeView automatically re-renders.
-    var currentTrip: Trip? = nil
+    // Full list of all saved plans (both DayPlans and Trips)
+    var items: [PlanItem] = []
 
-    // Controls whether the "Plan Your Day" sheet is presented
-    var isShowingTripBuilder = false
+    // FAB menu open/close
+    var isFABMenuOpen = false
+
+    // Which builder sheet to show
+    var showingDayPlanBuilder = false
+    var showingTripBuilder    = false
 
     init() {
-        // Auto-load today's trip from disk when the app opens.
-        // If the user already planned a trip today, it shows up immediately.
-        currentTrip = TripHistoryService.shared.loadTodaysTrip()
+        items = TripHistoryService.shared.loadAll()
     }
 
-    // MARK: - Computed properties (used directly by the View)
+    // MARK: - Computed
 
-    /// Greeting based on the current hour of the day
     var greeting: String {
         let hour = Calendar.current.component(.hour, from: .now)
         switch hour {
@@ -47,35 +39,48 @@ final class HomeViewModel {
         }
     }
 
-    /// Formatted date string, e.g. "Friday, July 11"
     var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d"  // EEEE = full weekday, MMMM = full month
-        return formatter.string(from: .now)
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, MMMM d"
+        return f.string(from: .now)
     }
 
-    /// True if there's a trip planned for today
-    var hasTripToday: Bool {
-        currentTrip?.isToday == true && currentTrip?.stops.isEmpty == false
+    /// The plan that is active today — shown in the "Today's Focus" banner
+    var todaysItem: PlanItem? {
+        items.first { $0.status == .active }
     }
 
-    // MARK: - Intent functions (actions the View can trigger)
-
-    /// Called when the user taps "Plan Your Day"
-    func startPlanningTrip() {
-        isShowingTripBuilder = true
+    /// All plans sorted newest-first for the "All Plans" list
+    var sortedItems: [PlanItem] {
+        items.sorted { $0.startDate > $1.startDate }
     }
 
-    /// Called by TripBuilderView (FR3) when it creates a trip.
-    /// Saves to history so it persists across app restarts.
-    func setTrip(_ trip: Trip) {
-        currentTrip = trip
-        TripHistoryService.shared.save(trip)   // persist to disk immediately
+    // MARK: - Intents
+
+    func saveDayPlan(_ plan: DayPlan) {
+        let item = PlanItem.singleDay(plan)
+        TripHistoryService.shared.save(item)
+        reload()
     }
 
-    /// Called when the user wants to clear/delete the current trip.
-    /// Keeps the trip in history — just removes it from "today".
-    func clearTrip() {
-        currentTrip = nil
+    func saveTrip(_ trip: Trip) {
+        let item = PlanItem.multiDayTrip(trip)
+        TripHistoryService.shared.save(item)
+        reload()
+    }
+
+    func delete(_ item: PlanItem) {
+        TripHistoryService.shared.delete(id: item.id)
+        reload()
+    }
+
+    func reload() {
+        items = TripHistoryService.shared.loadAll()
+    }
+
+    func toggleFAB() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            isFABMenuOpen.toggle()
+        }
     }
 }

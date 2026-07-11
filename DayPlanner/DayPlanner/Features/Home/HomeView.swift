@@ -1,95 +1,101 @@
 //
 //  HomeView.swift
-//  DayPlanner
+//  DayPlanner (PlanDay)
 //
-//  The main screen users see every day after onboarding.
-//  Shows a greeting, today's date, and either:
-//    - An empty state (no trip) with a "Plan Your Day" CTA
-//    - A trip summary card (trip exists) with a "View Trip" button
+//  Redesigned home screen with:
+//  - Greeting header
+//  - "Today's Focus" highlighted card (if a plan is active today)
+//  - "All Plans" scrollable list of Day Cards and Trip Cards
+//  - FAB (Floating Action Button) with animated two-option menu
+//  - Swipe-to-delete on cards
 //
 
 import SwiftUI
 
 struct HomeView: View {
 
-    // @State creates the ViewModel and owns it for the lifetime of this view.
-    // We use @State (not a constant) because @Observable ViewModels need
-    // to be stored as state to properly track changes in iOS 17+.
     @State private var viewModel = HomeViewModel()
     @State private var showingSettings = false
-    @State private var showingHistory = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+            ZStack(alignment: .bottomTrailing) {
 
-                    // — Greeting header —
-                    GreetingHeaderView(
-                        greeting: viewModel.greeting,
-                        date: viewModel.formattedDate
-                    )
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
 
-                    // — Main content: empty state OR trip card —
-                    if viewModel.hasTripToday, let trip = viewModel.currentTrip {
-                        // Trip exists: show the summary card + action buttons
-                        TripExistsSection(trip: trip, viewModel: viewModel)
-                    } else {
-                        // No trip: show the empty state prompt
-                        EmptyStateSection(viewModel: viewModel)
-                    }
+                        // — Greeting —
+                        GreetingHeader(
+                            greeting: viewModel.greeting,
+                            date: viewModel.formattedDate
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                        .padding(.bottom, 24)
 
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-            }
-            .navigationTitle("DayPlanner")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                // History button — navigates to FR7 Trip History
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingHistory = true
-                    } label: {
-                        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        // — Today's Focus —
+                        if let today = viewModel.todaysItem {
+                            SectionHeader(title: "Today's Focus", symbol: "location.fill", color: .blue)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 10)
+
+                            PlanCard(item: today, viewModel: viewModel, isHighlighted: true)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 28)
+                        }
+
+                        // — All Plans —
+                        SectionHeader(title: "All Plans", symbol: "calendar", color: .secondary)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 10)
+
+                        if viewModel.sortedItems.isEmpty {
+                            EmptyPlansState()
+                                .padding(.horizontal, 20)
+                                .padding(.top, 40)
+                        } else {
+                            VStack(spacing: 14) {
+                                ForEach(viewModel.sortedItems) { item in
+                                    PlanCard(item: item, viewModel: viewModel, isHighlighted: false)
+                                        .padding(.horizontal, 16)
+                                }
+                            }
+                            .padding(.bottom, 100) // space for FAB
+                        }
                     }
                 }
-                // Settings button in top-right (will link to FR8 later)
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
+                .navigationTitle("PlanDay")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showingSettings = true } label: {
+                            Image(systemName: "gearshape")
+                        }
                     }
                 }
-            }
-            .navigationDestination(isPresented: $showingHistory) {
-                TripHistoryView()
+                .onAppear { viewModel.reload() }
+
+                // — FAB overlay —
+                FABMenu(viewModel: viewModel)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 32)
             }
         }
-        // Settings sheet (FR8)
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
+        .sheet(isPresented: $showingSettings) { SettingsView() }
+        .sheet(isPresented: $viewModel.showingDayPlanBuilder) {
+            DayPlanBuilderView { plan in viewModel.saveDayPlan(plan) }
         }
-        // Present the real TripBuilder sheet (FR3)
-        .sheet(isPresented: $viewModel.isShowingTripBuilder) {
-            TripBuilderView { confirmedTrip in
-                viewModel.setTrip(confirmedTrip)
-            }
+        .sheet(isPresented: $viewModel.showingTripBuilder) {
+            TripBuilderView { trip in viewModel.saveTrip(trip) }
         }
     }
 }
 
 // MARK: - Greeting Header
 
-/// The "Good morning, Daksh!" + date block at the top of the screen.
-private struct GreetingHeaderView: View {
+private struct GreetingHeader: View {
     let greeting: String
     let date: String
-
-    // Read the stored name from UserDefaults (we'll let the user set this in FR8 Settings)
-    // Default is "there" so the greeting still makes sense before a name is set.
     @AppStorage("userName") private var userName = "there"
 
     var body: some View {
@@ -103,119 +109,357 @@ private struct GreetingHeaderView: View {
     }
 }
 
-// MARK: - Empty State
+// MARK: - Section Header
 
-/// Shown when no trip is planned for today.
-private struct EmptyStateSection: View {
-    let viewModel: HomeViewModel
+private struct SectionHeader: View {
+    let title: String
+    let symbol: String
+    let color: Color
 
     var body: some View {
-        VStack(spacing: 32) {
-            // Illustration using SF Symbols
-            ZStack {
-                Circle()
-                    .fill(.blue.opacity(0.08))
-                    .frame(width: 180, height: 180)
+        Label(title, systemImage: symbol)
+            .font(.caption.bold())
+            .foregroundStyle(color)
+            .textCase(.uppercase)
+    }
+}
 
-                VStack(spacing: 8) {
-                    Image(systemName: "map")
-                        .font(.system(size: 64, weight: .light))
-                        .foregroundStyle(.blue.opacity(0.7))
+// MARK: - Plan Card (dispatcher)
+
+/// Renders the right card type depending on whether the item is a Day Plan or Trip.
+private struct PlanCard: View {
+    let item: PlanItem
+    let viewModel: HomeViewModel
+    let isHighlighted: Bool
+
+    var body: some View {
+        switch item {
+        case .singleDay(let plan):
+            DayPlanCard(plan: plan, isHighlighted: isHighlighted)
+                .contextMenu {
+                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+        case .multiDayTrip(let trip):
+            TripCard(trip: trip, isHighlighted: isHighlighted)
+                .contextMenu {
+                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+        }
+    }
+}
+
+// MARK: - Day Plan Card
+
+private struct DayPlanCard: View {
+    let plan: DayPlan
+    let isHighlighted: Bool
+
+    @State private var showingRoute = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+
+            // Header row
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(plan.name)
+                        .font(.headline)
+                    Text(plan.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                StatusBadge(status: plan.status)
+            }
+
+            Divider()
+
+            // Stats row
+            HStack(spacing: 0) {
+                MiniStat(value: "\(plan.stops.count)",
+                         label: plan.stops.count == 1 ? "Stop" : "Stops",
+                         symbol: "mappin.circle.fill", color: .blue)
+                Divider().frame(height: 32)
+                MiniStat(value: formattedDuration(plan.totalMinutesToSpend),
+                         label: "Planned", symbol: "clock.fill", color: .orange)
+                Divider().frame(height: 32)
+                MiniStat(value: plan.travelMode.rawValue,
+                         label: "Mode",
+                         symbol: plan.travelMode.symbolName, color: .purple)
+            }
+
+            // Action buttons (only show if not empty)
+            if !plan.stops.isEmpty {
+                HStack(spacing: 10) {
+                    Button { showingRoute = true } label: {
+                        Label("View Route", systemImage: "map.fill")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(.blue)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
                 }
             }
-            .padding(.top, 40)
+        }
+        .padding(16)
+        .background(isHighlighted ? AnyShapeStyle(.blue.opacity(0.07)) : AnyShapeStyle(.regularMaterial))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(color: .black.opacity(isHighlighted ? 0.10 : 0.06), radius: 10, y: 3)
+        .overlay(
+            isHighlighted
+                ? RoundedRectangle(cornerRadius: 18).stroke(.blue.opacity(0.3), lineWidth: 1.5)
+                : nil
+        )
+        .navigationDestination(isPresented: $showingRoute) {
+            RouteOptimizerView(dayPlan: plan)
+        }
+    }
 
-            VStack(spacing: 8) {
-                Text("No trip planned yet")
-                    .font(.title3.bold())
+    private func formattedDuration(_ m: Int) -> String {
+        guard m > 0 else { return "—" }
+        let h = m / 60; let mins = m % 60
+        if h > 0 && mins > 0 { return "\(h)h \(mins)m" }
+        return h > 0 ? "\(h)h" : "\(mins)m"
+    }
+}
 
-                Text("Add the places you want to visit\nand we'll build your perfect route.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+// MARK: - Trip Card
+
+private struct TripCard: View {
+    let trip: Trip
+    let isHighlighted: Bool
+
+    @State private var showingDetail = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+
+            // Header
+            HStack(alignment: .top) {
+                // Emoji + color blob
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(hex: trip.coverColor).opacity(0.2))
+                        .frame(width: 44, height: 44)
+                    Text(trip.emoji).font(.title2)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(trip.name).font(.headline)
+                    Text(trip.dateRangeLabel)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                StatusBadge(status: trip.status)
             }
 
-            // Primary CTA button
-            Button {
-                viewModel.startPlanningTrip()
-            } label: {
-                Label("Plan Your Day", systemImage: "plus.circle.fill")
-                    .font(.headline)
+            Divider()
+
+            // Summary
+            HStack(spacing: 0) {
+                MiniStat(value: "\(trip.days.count)",
+                         label: trip.days.count == 1 ? "Day" : "Days",
+                         symbol: "calendar", color: .indigo)
+                Divider().frame(height: 32)
+                MiniStat(value: "\(trip.totalStops)",
+                         label: trip.totalStops == 1 ? "Stop" : "Stops",
+                         symbol: "mappin.circle.fill", color: .blue)
+                Divider().frame(height: 32)
+                MiniStat(value: trip.travelMode.rawValue,
+                         label: "Mode",
+                         symbol: trip.travelMode.symbolName, color: .purple)
+            }
+
+            // View Trip button
+            Button { showingDetail = true } label: {
+                Label("View Trip", systemImage: "chevron.right")
+                    .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.vertical, 12)
+                    .background(Color(hex: trip.coverColor).opacity(0.15))
+                    .foregroundStyle(Color(hex: trip.coverColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
+        }
+        .padding(16)
+        .background(isHighlighted ? AnyShapeStyle(Color(hex: trip.coverColor).opacity(0.07)) : AnyShapeStyle(.regularMaterial))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(color: .black.opacity(isHighlighted ? 0.10 : 0.06), radius: 10, y: 3)
+        .overlay(
+            isHighlighted
+                ? RoundedRectangle(cornerRadius: 18).stroke(Color(hex: trip.coverColor).opacity(0.3), lineWidth: 1.5)
+                : nil
+        )
+        .navigationDestination(isPresented: $showingDetail) {
+            TripDetailView(trip: trip)
+        }
+    }
+}
+
+// MARK: - Status Badge
+
+private struct StatusBadge: View {
+    let status: PlanStatus
+
+    private var color: Color {
+        switch status {
+        case .active:    return .blue
+        case .upcoming:  return .orange
+        case .completed: return .green
+        }
+    }
+
+    var body: some View {
+        Label(status.label, systemImage: status.symbolName)
+            .font(.caption2.bold())
             .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.12))
+            .foregroundStyle(color)
+            .clipShape(Capsule())
+    }
+}
+
+// MARK: - Mini Stat
+
+private struct MiniStat: View {
+    let value: String
+    let label: String
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol).font(.caption).foregroundStyle(color)
+            Text(value).font(.subheadline.bold())
+            Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }
 }
 
-// MARK: - Trip Exists Section
+// MARK: - Empty State
 
-/// Shown when a trip is already planned.
-private struct TripExistsSection: View {
-    let trip: Trip
-    let viewModel: HomeViewModel
+private struct EmptyPlansState: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Circle()
+                .fill(.blue.opacity(0.07))
+                .frame(width: 120, height: 120)
+                .overlay(
+                    Image(systemName: "map")
+                        .font(.system(size: 48, weight: .light))
+                        .foregroundStyle(.blue.opacity(0.6))
+                )
+            VStack(spacing: 6) {
+                Text("No plans yet")
+                    .font(.title3.bold())
+                Text("Tap + to start planning\nyour day or trip.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
 
-    // Controls navigation to RouteOptimizerView
-    @State private var showingRoute = false
+// MARK: - FAB Menu
+
+private struct FABMenu: View {
+    @Bindable var viewModel: HomeViewModel
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(alignment: .trailing, spacing: 12) {
 
-            // Reusable summary card from Components/
-            TripSummaryCard(trip: trip)
-
-            // Action buttons row
-            HStack(spacing: 12) {
-                // View optimized route (FR4) — taps into RouteOptimizerView
-                Button {
-                    showingRoute = true
-                } label: {
-                    Label("View Route", systemImage: "map.fill")
-                        .font(.subheadline.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.blue)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+            // Option buttons — slide up when menu is open
+            if viewModel.isFABMenuOpen {
+                FABOption(label: "Plan a Trip", symbol: "map.fill", color: .indigo) {
+                    viewModel.isFABMenuOpen = false
+                    viewModel.showingTripBuilder = true
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
 
-                // Edit / rebuild trip (FR3)
-                Button {
-                    viewModel.startPlanningTrip()
-                } label: {
-                    Label("Edit Trip", systemImage: "pencil")
-                        .font(.subheadline.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.blue.opacity(0.1))
-                        .foregroundStyle(.blue)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                FABOption(label: "Plan a Day", symbol: "calendar.badge.plus", color: .blue) {
+                    viewModel.isFABMenuOpen = false
+                    viewModel.showingDayPlanBuilder = true
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            // Destructive clear button
-            Button(role: .destructive) {
-                viewModel.clearTrip()
+            // Main + button
+            Button {
+                viewModel.toggleFAB()
             } label: {
-                Text("Clear Trip")
-                    .font(.subheadline)
-                    .foregroundStyle(.red.opacity(0.8))
+                Image(systemName: viewModel.isFABMenuOpen ? "xmark" : "plus")
+                    .font(.title3.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(.blue)
+                    .clipShape(Circle())
+                    .shadow(color: .blue.opacity(0.35), radius: 10, y: 4)
+                    .rotationEffect(.degrees(viewModel.isFABMenuOpen ? 45 : 0))
+                    .animation(.spring(response: 0.3), value: viewModel.isFABMenuOpen)
             }
-            .padding(.top, 4)
-        }
-        // NavigationLink destination — pushes RouteOptimizerView onto the stack
-        .navigationDestination(isPresented: $showingRoute) {
-            RouteOptimizerView(trip: trip)
         }
     }
 }
 
+private struct FABOption: View {
+    let label: String
+    let symbol: String
+    let color: Color
+    let action: () -> Void
 
-#Preview {
-    HomeView()
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(label)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                Image(systemName: symbol)
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(color)
+                    .clipShape(Circle())
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.regularMaterial)
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(0.1), radius: 6, y: 2)
+        }
+    }
 }
+
+// MARK: - Color(hex:) extension
+
+extension Color {
+    init(hex: String) {
+        let h = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var rgb: UInt64 = 0
+        Scanner(string: h).scanHexInt64(&rgb)
+        let r = Double((rgb >> 16) & 0xFF) / 255
+        let g = Double((rgb >>  8) & 0xFF) / 255
+        let b = Double( rgb        & 0xFF) / 255
+        self.init(red: r, green: g, blue: b)
+    }
+}
+
+#Preview { HomeView() }

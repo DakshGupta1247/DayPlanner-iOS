@@ -1,58 +1,56 @@
 //
 //  TripHistoryView.swift
-//  DayPlanner
+//  DayPlanner (PlanDay)
 //
-//  Shows all saved trips grouped into "Today / This Week / Earlier".
-//  The user can tap a trip to view its summary, or swipe-to-delete it.
-//
-//  Key SwiftUI concept — List sections:
-//  SwiftUI's List natively supports sections with headers. We use our
-//  ViewModel's `groupedTrips` — an array of (title, [Trip]) tuples —
-//  to drive one Section per group.
+//  Shows all saved PlanItems (DayPlans + Trips) grouped by time.
+//  Accessible from Settings; the Home screen is now the primary entry point.
 //
 
 import SwiftUI
 
 struct TripHistoryView: View {
 
-    @State private var viewModel = TripHistoryViewModel()
+    @State private var items: [PlanItem] = []
+    @State private var selectedItem: PlanItem? = nil
 
-    // When the user taps a trip card we push TripDetailView onto the stack
-    @State private var selectedTrip: Trip? = nil
+    var groupedItems: [(title: String, items: [PlanItem])] {
+        let cal = Calendar.current
+        let today     = cal.startOfDay(for: .now)
+        let weekStart = cal.date(byAdding: .day, value: -6, to: today)!
+
+        let todayItems   = items.filter { cal.isDateInToday($0.startDate) }
+        let weekItems    = items.filter {
+            let d = cal.startOfDay(for: $0.startDate)
+            return d >= weekStart && d < today
+        }
+        let earlierItems = items.filter { cal.startOfDay(for: $0.startDate) < weekStart }
+
+        return [("Today", todayItems), ("This Week", weekItems), ("Earlier", earlierItems)]
+            .filter { !$0.items.isEmpty }
+    }
 
     var body: some View {
         Group {
-            if viewModel.trips.isEmpty {
-                emptyState
-            } else {
-                tripList
-            }
+            if items.isEmpty { emptyState }
+            else             { itemList  }
         }
-        .navigationTitle("Trip History")
+        .navigationTitle("History")
         .navigationBarTitleDisplayMode(.large)
-        // Load trips every time this screen appears (handles deletions etc.)
-        .onAppear { viewModel.loadTrips() }
-        .navigationDestination(item: $selectedTrip) { trip in
-            TripDetailView(trip: trip)
-        }
+        .onAppear { items = TripHistoryService.shared.loadAll() }
     }
 
-    // MARK: - Trip List
+    // MARK: - List
 
     @ViewBuilder
-    private var tripList: some View {
+    private var itemList: some View {
         List {
-            ForEach(viewModel.groupedTrips, id: \.title) { group in
+            ForEach(groupedItems, id: \.title) { group in
                 Section(header: Text(group.title).font(.caption.bold())) {
-                    ForEach(group.trips) { trip in
-                        TripHistoryRow(trip: trip)
-                            .contentShape(Rectangle())  // makes whole row tappable
-                            .onTapGesture { selectedTrip = trip }
-                            // swipe-left to delete
+                    ForEach(group.items) { item in
+                        HistoryRow(item: item)
+                            .contentShape(Rectangle())
                             .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    viewModel.delete(tripID: trip.id)
-                                } label: {
+                                Button(role: .destructive) { delete(item) } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
                             }
@@ -68,149 +66,81 @@ struct TripHistoryView: View {
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                .font(.system(size: 60, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("No trips yet")
-                .font(.title3.bold())
-            Text("Trips you plan will be saved here automatically.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .font(.system(size: 60, weight: .light)).foregroundStyle(.secondary)
+            Text("No plans yet").font(.title3.bold())
+            Text("Plans you create will appear here.")
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .padding(.horizontal, 40)
     }
+
+    private func delete(_ item: PlanItem) {
+        TripHistoryService.shared.delete(id: item.id)
+        items = TripHistoryService.shared.loadAll()
+    }
 }
 
-// MARK: - Trip History Row
+// MARK: - History Row
 
-/// One row in the history list — shows name, date, stop count, travel mode.
-private struct TripHistoryRow: View {
-    let trip: Trip
+private struct HistoryRow: View {
+    let item: PlanItem
 
     var body: some View {
         HStack(spacing: 14) {
 
-            // Date badge — day number + short month
+            // Date badge
             VStack(spacing: 2) {
-                Text(trip.date.formatted(.dateTime.day()))
+                Text(item.startDate.formatted(.dateTime.day()))
                     .font(.title2.bold())
-                Text(trip.date.formatted(.dateTime.month(.abbreviated)))
-                    .font(.caption2.bold())
-                    .foregroundStyle(.secondary)
+                Text(item.startDate.formatted(.dateTime.month(.abbreviated)))
+                    .font(.caption2.bold()).foregroundStyle(.secondary)
             }
             .frame(width: 44)
 
             Divider().frame(height: 40)
 
-            // Trip details
+            // Details
             VStack(alignment: .leading, spacing: 3) {
-                Text(trip.name)
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    // Stop count
-                    Label("\(trip.stops.count) stops", systemImage: "mappin.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    // Total planned time
-                    Label(formattedDuration, systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if case .multiDayTrip(let t) = item { Text(t.emoji) }
+                    Text(itemTitle).font(.subheadline.bold()).lineLimit(1)
                 }
+                Text(itemSubtitle).font(.caption).foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            // Travel mode icon
-            Image(systemName: trip.travelMode.symbolName)
-                .font(.caption)
-                .foregroundStyle(.blue)
-                .padding(8)
-                .background(.blue.opacity(0.1))
-                .clipShape(Circle())
+            // Status dot
+            Circle()
+                .fill(statusColor)
+                .frame(width: 8, height: 8)
         }
         .padding(.vertical, 4)
     }
 
-    private var formattedDuration: String {
-        let total = trip.totalMinutesToSpend
-        let hours = total / 60
-        let mins  = total % 60
-        if hours > 0 { return "\(hours)h \(mins)m" }
-        return "\(mins) min"
-    }
-}
-
-// MARK: - Trip Detail View
-
-/// Pushed when the user taps a history row — shows the full TripSummaryCard
-/// plus the stop list, so the user can review a past trip.
-struct TripDetailView: View {
-    let trip: Trip
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-
-                // Reuse the same card from the Home screen
-                TripSummaryCard(trip: trip)
-
-                Text("Stops")
-                    .font(.headline)
-                    .padding(.horizontal, 20)
-
-                VStack(spacing: 12) {
-                    ForEach(Array(trip.stops.enumerated()), id: \.element.id) { index, stop in
-                        StopDetailRow(number: index + 1, stop: stop)
-                    }
-                }
-                .padding(.horizontal, 20)
-
-                Spacer(minLength: 32)
-            }
-            .padding(.top, 16)
+    private var itemTitle: String {
+        switch item {
+        case .singleDay(let d):    return d.name
+        case .multiDayTrip(let t): return t.name
         }
-        .navigationTitle(trip.name)
-        .navigationBarTitleDisplayMode(.inline)
     }
-}
 
-// MARK: - Stop Detail Row
-
-private struct StopDetailRow: View {
-    let number: Int
-    let stop: Stop
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Number badge
-            ZStack {
-                Circle().fill(.blue).frame(width: 28, height: 28)
-                Text("\(number)").font(.caption.bold()).foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(stop.name).font(.subheadline.bold()).lineLimit(1)
-                Text(stop.address).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-
-            Spacer()
-
-            Text("\(stop.minutesToSpend) min")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private var itemSubtitle: String {
+        switch item {
+        case .singleDay(let d):
+            return "\(d.stops.count) stop\(d.stops.count == 1 ? "" : "s") · \(d.travelMode.rawValue)"
+        case .multiDayTrip(let t):
+            return t.summaryLabel
         }
-        .padding(12)
-        .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+    }
+
+    private var statusColor: Color {
+        switch item.status {
+        case .active: return .blue; case .upcoming: return .orange; case .completed: return .green
+        }
     }
 }
 
 #Preview {
-    NavigationStack {
-        TripHistoryView()
-    }
+    NavigationStack { TripHistoryView() }
 }
