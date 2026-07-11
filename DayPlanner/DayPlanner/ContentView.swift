@@ -24,6 +24,10 @@ struct ContentView: View {
     // true   → user has completed onboarding, go straight to home
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
+    // Reads the appearance preference saved by SettingsView (FR8).
+    // Placing .preferredColorScheme here applies it to the entire app.
+    @AppStorage("appearanceMode") private var appearanceMode = "system"
+
     var body: some View {
         // A simple if/else: show one view or the other based on the flag.
         // The .transition + .animation make the swap look smooth.
@@ -37,6 +41,17 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.4), value: hasCompletedOnboarding)
+        // Apply the user's colour scheme preference to the whole app.
+        // nil = follow the system setting.
+        .preferredColorScheme(colorScheme(for: appearanceMode))
+    }
+
+    private func colorScheme(for mode: String) -> ColorScheme? {
+        switch mode {
+        case "light": return .light
+        case "dark":  return .dark
+        default:      return nil    // "system" → let iOS decide
+        }
     }
 }
 
