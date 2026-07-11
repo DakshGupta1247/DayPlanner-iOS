@@ -143,6 +143,9 @@ private struct TripExistsSection: View {
     let trip: Trip
     let viewModel: HomeViewModel
 
+    // Controls navigation to RouteOptimizerView
+    @State private var showingRoute = false
+
     var body: some View {
         VStack(spacing: 16) {
 
@@ -151,11 +154,11 @@ private struct TripExistsSection: View {
 
             // Action buttons row
             HStack(spacing: 12) {
-                // View full itinerary (FR5)
+                // View optimized route (FR4) — taps into RouteOptimizerView
                 Button {
-                    // TODO: navigate to itinerary (FR5)
+                    showingRoute = true
                 } label: {
-                    Label("View Itinerary", systemImage: "list.bullet.rectangle")
+                    Label("View Route", systemImage: "map.fill")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -187,6 +190,10 @@ private struct TripExistsSection: View {
                     .foregroundStyle(.red.opacity(0.8))
             }
             .padding(.top, 4)
+        }
+        // NavigationLink destination — pushes RouteOptimizerView onto the stack
+        .navigationDestination(isPresented: $showingRoute) {
+            RouteOptimizerView(trip: trip)
         }
     }
 }
