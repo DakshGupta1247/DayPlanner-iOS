@@ -17,6 +17,7 @@
 import MapKit
 import Observation
 import CoreLocation
+import SwiftUI
 
 @Observable
 @MainActor
@@ -186,9 +187,9 @@ final class LiveNavigationViewModel {
 
         etaIsLoading = true
 
-        let fromItem = MKMapItem(placemark: MKPlacemark(coordinate: location.coordinate))
-        let toCoord  = CLLocationCoordinate2D(latitude: stop.latitude, longitude: stop.longitude)
-        let toItem   = MKMapItem(placemark: MKPlacemark(coordinate: toCoord))
+        let fromItem = MKMapItem(location: location, address: nil)
+        let toLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
+        let toItem   = MKMapItem(location: toLocation, address: nil)
 
         let request = MKDirections.Request()
         request.source = fromItem
