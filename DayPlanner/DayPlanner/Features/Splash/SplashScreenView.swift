@@ -20,17 +20,12 @@ struct SplashScreenView: View {
 
     // Tracks whether the 2-second timer has fired and we should move on.
     @State private var isActive = false
-
-    // Whether we're in the scale-up animation phase (logo grows 0.8 → 1.0).
     @State private var logoScale: CGFloat = 0.8
-
-    // Controls the fade-in of the logo + title after they scale up.
     @State private var contentOpacity: Double = 0.0
+    @State private var taglineOpacity: Double = 0.0
 
-    // Reads the UserDefaults key written by WelcomeScreenView.
-    // false = user has never seen the welcome screen → show it after splash.
-    // true  = user already saw it → go straight to HomeView.
     @AppStorage("hasSeenWelcomeScreen") private var hasSeenWelcomeScreen = false
+    @State private var profileService = ProfileService.shared
 
     // Reads the appearance preference saved by SettingsView.
     // Applied here because SplashScreenView is the true root of the view hierarchy.
@@ -58,14 +53,17 @@ struct SplashScreenView: View {
     var body: some View {
         Group {
         if isActive {
-            // Timer fired — hand off to the correct next screen.
-            if hasSeenWelcomeScreen {
-                // Returning user: skip welcome, go straight home.
-                HomeView()
+            if !hasSeenWelcomeScreen {
+                // First-time user: show welcome screen (it routes to profile creation).
+                WelcomeScreenView()
+                    .transition(.opacity)
+            } else if profileService.profiles.count <= 1 && profileService.profiles.first?.name == "Me" {
+                // Only the auto-created "Me" default profile — go to creation
+                ProfileCreationView()
                     .transition(.opacity)
             } else {
-                // First-time user: show welcome screen.
-                WelcomeScreenView()
+                // Returning user with real profiles — show profile picker
+                ProfileSelectionView()
                     .transition(.opacity)
             }
         } else {
@@ -108,21 +106,28 @@ struct SplashScreenView: View {
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(titleColor)
 
-                Text("Plan smart. Travel better.")
-                    .font(.subheadline)
-                    .foregroundStyle(taglineColor)
+                // Tagline + subtitle — fade in after logo (delay 0.8s)
+                VStack(spacing: 6) {
+                    Text("Your Journey Starts Here ✈️")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(titleColor)
+                    Text("Plan smarter. Travel better. Live fully.")
+                        .font(.caption)
+                        .foregroundStyle(Color(red: 0.56, green: 0.56, blue: 0.58)) // #8E8E93
+                }
+                .opacity(taglineOpacity)
             }
             .opacity(contentOpacity)
         }
         .onAppear {
-            // Step 1: Animate logo scale + fade-in over 0.6s (easeOut feels snappy).
             withAnimation(.easeOut(duration: 0.6)) {
                 logoScale = 1.0
                 contentOpacity = 1.0
             }
-
-            // Step 2: After 2 seconds, cross-fade to the next screen.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeOut(duration: 0.5).delay(0.8)) {
+                taglineOpacity = 1.0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                 withAnimation(.easeInOut(duration: 0.5)) {
                     isActive = true
                 }

@@ -53,9 +53,13 @@ struct HomeView: View {
                             .padding(.bottom, 10)
 
                         if viewModel.sortedItems.isEmpty {
-                            EmptyPlansState()
-                                .padding(.horizontal, 20)
-                                .padding(.top, 40)
+                            EmptyPlansState {
+                                viewModel.toggleFAB()
+                                viewModel.showingDayPlanBuilder = true
+                                viewModel.isFABMenuOpen = false
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 40)
                         } else {
                             VStack(spacing: 14) {
                                 ForEach(viewModel.sortedItems) { item in
@@ -438,24 +442,41 @@ private struct MiniStat: View {
 // MARK: - Empty State
 
 private struct EmptyPlansState: View {
+    let onCreatePlan: () -> Void
+
     var body: some View {
-        VStack(spacing: 20) {
-            Circle()
-                .fill(.blue.opacity(0.07))
-                .frame(width: 120, height: 120)
-                .overlay(
-                    Image(systemName: "map")
-                        .font(.system(size: 48, weight: .light))
-                        .foregroundStyle(.blue.opacity(0.6))
-                )
-            VStack(spacing: 6) {
-                Text("No plans yet")
-                    .font(.title3.bold())
-                Text("Tap + to start planning\nyour day or trip.")
+        VStack(spacing: 24) {
+            // Icon on light blue circular background
+            ZStack {
+                Circle()
+                    .fill(.blue.opacity(0.08))
+                    .frame(width: 130, height: 130)
+                Image(systemName: "map.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.blue.opacity(0.7))
+            }
+
+            VStack(spacing: 8) {
+                Text("No Plans Yet")
+                    .font(.title2.bold())
+                Text("Tap + below to create your first plan.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
+
+            // CTA button
+            Button(action: onCreatePlan) {
+                Label("Create Your First Plan", systemImage: "plus")
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
     }
@@ -536,7 +557,7 @@ private struct ProfileAvatarButton: View {
     let profile: UserProfile?
 
     private var color: Color {
-        Color.hex( profile?.accentColor.hexValue ?? "#3B82F6")
+        Color.hex(profile?.avatarColor ?? "#3B82F6")
     }
 
     var body: some View {
@@ -544,7 +565,7 @@ private struct ProfileAvatarButton: View {
             Circle()
                 .fill(color.opacity(0.2))
                 .frame(width: 32, height: 32)
-            Text(profile?.initials ?? "?")
+            Image(systemName: profile?.avatarSymbol ?? "person.fill")
                 .font(.caption.bold())
                 .foregroundStyle(color)
         }
