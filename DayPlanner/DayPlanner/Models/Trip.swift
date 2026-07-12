@@ -24,6 +24,8 @@ struct Stop: Identifiable, Codable, Hashable {
     var minutesToSpend: Int
     // Transient flag — not persisted to disk (excluded from Codable via custom keys)
     var isVisited: Bool = false
+    // Optional closing time for the venue — used by ETAEngine for ClosingTimeVerdict
+    var openUntil: Date? = nil
 
     nonisolated var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)

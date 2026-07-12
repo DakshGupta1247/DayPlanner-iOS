@@ -26,6 +26,9 @@ This document is a detailed technical and functional breakdown of every feature 
 18. [Multi-User Profiles (Data Layer)](#18-multi-user-profiles-data-layer)
 19. [Persistence Layer](#19-persistence-layer)
 20. [Edit & Delete Plans](#20-edit--delete-plans)
+21. [GPS Integrity Gate](#21-gps-integrity-gate)
+22. [ETA Engine](#22-eta-engine)
+23. [Bundled Stops & StopsLoader](#23-bundled-stops--stopsloader)
 
 ---
 
@@ -692,7 +695,7 @@ When `currentStopIndex >= stops.count`, a "Trip Complete!" celebration screen is
 ## 14. Live GPS Navigation
 
 ### What it does
-Real-time GPS tracking during a trip. Live route line from current position to next stop, auto ETA recalculation, auto-arrival detection at 50m.
+Real-time GPS tracking during a trip. Live route line from current position to next stop, auto ETA recalculation, auto-arrival detection, GPS trust chip, speed-based ETA with arrival time, and closing-time verdicts.
 
 ### Status
 ✅ Implemented
@@ -701,15 +704,120 @@ Real-time GPS tracking during a trip. Live route line from current position to n
 - `LiveNavigationView.swift`
 - `LiveNavigationViewModel.swift`
 - `LocationService.swift`
+- `LocationIntegrityGate.swift`
+- `ETAEngine.swift`
+
+---
+
+### GPS Integrity Gate (FR2)
+
+Each raw fix from `CLLocationManager` is passed through `LocationIntegrityGate` before being used:
+
+```swift
+actor LocationIntegrityGate {
+    func validate(_ location: CLLocation, previous: CLLocation?) -> LocationTrust
+}
+
+enum LocationTrust {
+    case trusted(CLLocation)
+    case degraded(CLLocation, reason: String)   // usable but quality is low
+    case untrusted(reason: String)              // rejected
+}
+```
+
+**Rejection rules:**
+| Rule | Threshold |
+|---|---|
+| Low accuracy | `horizontalAccuracy > 50m` → `.degraded` |
+| Stale fix | `timestamp age > 5s` → `.untrusted` |
+| Teleport jump | implied speed `> 40 m/s` between fixes → `.untrusted` |
+
+**`#if DEBUG` bypass:** In DEBUG builds all fixes are `.trusted` — the simulator has no real GPS chip and would otherwise be stuck on untrusted. This bypass means the app works perfectly on simulator without any fake GPS feed.
+
+**`trustedLocationStream`:** `LocationService` emits `.trusted` and `.degraded` fixes onto an `AsyncStream<CLLocation>`. Callers (like the breadcrumb loop) subscribe to this instead of raw `currentLocation`.
+
+**`latestTrust`:** An `@Observable` property on `LocationService` updated on every fix — drives the `LocationTrustChip` UI.
+
+---
+
+### Location Trust Chip (FR2 UI)
+
+A small capsule in the top-left of the Live Navigation map:
+
+| Trust | Dot | Label |
+|---|---|---|
+| `.trusted` | 🟢 | "GPS Good" |
+| `.degraded` | 🟡 | "GPS Weak" |
+| `.untrusted` | 🔴 | "GPS Lost" |
+| `nil` (warming up) | ⚫ | "GPS…" |
+
+Implementation: `LocationTrustChip` view reads `locationService.latestTrust` — updates automatically since `latestTrust` is `@Observable`.
+
+---
+
+### ETA Engine (FR3)
+
+`ETAEngine` computes real-time ETA using **Exponential Moving Average (EMA)** speed:
+
+```
+smoothedSpeed = 0.3 × newSpeed + 0.7 × smoothedSpeed
+```
+
+- **Speed source**: `CLLocation.speed` if ≥ 0 (Doppler-measured), otherwise Haversine distance ÷ time delta between consecutive fixes
+- **Warmup guard**: returns `nil` until `fixCount >= 2` AND `smoothedSpeed >= 0.5 m/s` — prevents nonsensical ETAs at standstill
+- **ETAResult**: `(durationSeconds, arrivalTime, distanceMeters)` — `arrivalTime = Date.now + duration`
+
+The ETA display shows:
+- `"—"` during warmup (waiting for enough fixes / movement)
+- `"~7 min"` once moving (speed-based EMA)
+- `"Arrives 3:45 PM"` — formatted `arrivalTime` from `ETAResult`
+- A 1-second `Timer` refreshes the arrival time display so it stays current
+
+---
+
+### Closing Time Verdict (FR3)
+
+`Stop.openUntil: Date?` stores the venue closing time for today. `ETAEngine.verdict(eta:stop:)` compares `eta.arrivalTime` against it:
+
+```swift
+enum ClosingTimeVerdict {
+    case makeIt           // arrive > 15 min before closing
+    case cuttingClose     // arrive within 15 min of closing
+    case wontMakeIt       // arrive after closing
+    case noClosingTime    // stop has no openUntil — verdict not shown
+}
+```
+
+Displayed in the stop card with icon + text (never color-only for accessibility):
+- ✅ "You'll make it"
+- ⚠️ "Cutting it close"
+- ❌ "Won't make it"
+
+---
+
+### Monotonic Stop Crossing (FR4)
+
+`crossedStopIDs: Set<UUID>` in `LiveNavigationViewModel` ensures each stop can only trigger the arrival banner **once**, even if GPS bounces around the 25m radius:
+
+```swift
+if distanceToStop < 25,
+   !showingArrivalBanner,
+   !crossedStopIDs.contains(stop.id) {
+    crossedStopIDs.insert(stop.id)
+    showingArrivalBanner = true
+}
+```
+
+Arrival radius was tightened from 50m → **25m** for more precise detection.
+
+---
 
 ### GPS observation pattern
 `LiveNavigationViewModel` uses `withObservationTracking` — the modern @Observable equivalent of Combine's `sink`:
 
 ```swift
-// Runs in a loop — whenever locationService.currentLocation changes,
-// the onChange callback fires, continuation resumes, next location processed
 withObservationTracking {
-    _ = self.locationService.currentLocation   // "subscribe" to this property
+    _ = self.locationService.currentLocation
 } onChange: {
     continuation.resume()
 }
@@ -717,14 +825,11 @@ withObservationTracking {
 
 ### On each GPS update
 1. **Camera**: `MapCamera(centerCoordinate:distance:heading:pitch:)` — 3D tilted view at 800m, follows device heading
-2. **Auto-arrive**: `location.distance(from: stopLocation) < 50` → `showingArrivalBanner = true`
-3. **Route recalc**: if moved 50m+ from `lastRouteCalcLocation` → new `MKDirections` call from current position to next stop → updates `livePolyline` + `etaSeconds`
-
-### Why 50m threshold for recalculation
-Without it, every single GPS update (every 10m per `distanceFilter`) would trigger an MKDirections request. 50m threshold prevents hammering the API and keeps ETA stable enough to be useful.
+2. **Auto-arrive**: `location.distance(from: stopLocation) < 25` + monotonic guard → `showingArrivalBanner = true`
+3. **Route recalc**: if moved 50m+ from `lastRouteCalcLocation` → new `MKDirections` call → updates `livePolyline` + `etaSeconds`
 
 ### Battery
-`locationService.stopTracking()` is called in `stopLiveTracking()` which is called when the view disappears. GPS runs only while the Live Navigation screen is visible.
+`locationService.stopTracking()` is called in `stopLiveTracking()` which fires when the view disappears. GPS runs only while the Live Navigation screen is visible.
 
 ---
 
@@ -975,4 +1080,123 @@ Uses a `Binding<Bool>` derived from `itemPendingDelete != nil`:
 
 ---
 
-*Last updated: July 2026 — covers all features through GPS route optimisation branch.*
+---
+
+## 21. GPS Integrity Gate
+
+### What it does
+Validates each raw GPS fix before it is used anywhere in the app. Prevents bad data (stale fixes, low-accuracy urban canyon readings, simulator teleports) from affecting route calculations or ETA.
+
+### Status
+✅ Implemented
+
+### File
+- `LocationIntegrityGate.swift`
+
+### Actor design
+`LocationIntegrityGate` is a Swift `actor` — it has no mutable shared state right now, but using an actor future-proofs it for storing history (e.g., a rolling buffer of recent fixes for more sophisticated anomaly detection).
+
+### Rejection rules in detail
+
+**Accuracy check** — `horizontalAccuracy > 50m` → `.degraded`  
+`horizontalAccuracy` is iOS's confidence estimate. Values > 50m mean the fix is based on cell towers or WiFi triangulation, not the GPS chip. We emit these as `.degraded` rather than `.untrusted` because they are still useful when GPS chip is warming up.
+
+**Staleness check** — `timestamp age > 5s` → `.untrusted`  
+Core Location can cache the last known fix and deliver it immediately when tracking starts. A fix with a timestamp from 30 seconds ago is useless for navigation.
+
+**Teleport check** — implied speed > 40 m/s between consecutive fixes → `.untrusted`  
+`impliedSpeed = distance / timeDelta`. 40 m/s = 144 km/h — no pedestrian or car legitimately moves this fast between two GPS readings 10m apart. This catches simulator location spoofing and GPS chip glitches.
+
+### #if DEBUG bypass
+All fixes pass as `.trusted` in DEBUG builds. This is essential because the iOS Simulator has no GPS chip and delivers only simulated locations (Apple campus by default, or from a GPX route). Without this bypass, every simulator fix would be flagged as untrusted and navigation would never work during development.
+
+---
+
+## 22. ETA Engine
+
+### What it does
+Computes real-time ETA to the next stop using speed measured from GPS, with exponential smoothing to prevent jumpy values.
+
+### Status
+✅ Implemented
+
+### File
+- `ETAEngine.swift`
+
+### EMA speed smoothing
+Raw GPS speed is noisy — the device can report 0 m/s one second and 15 m/s the next. EMA smooths this:
+
+```
+smoothedSpeed = α × newSpeed + (1 - α) × smoothedSpeed
+α = 0.3
+```
+
+With α=0.3: 30% weight on the new reading, 70% on history. This means a single outlier reading only shifts the ETA by 30%, not 100%.
+
+**Speed source priority:**
+1. `CLLocation.speed` — Doppler-measured by the GPS chip, very accurate when ≥ 0
+2. Haversine distance / time delta — fallback when `speed == -1` (unavailable)
+
+### Warmup guard
+`eta()` returns `nil` if:
+- `fixCount < 2` — need at least one delta to compute speed
+- `smoothedSpeed < 0.5 m/s` — user is stationary; ETA would be infinity
+
+The view shows `"—"` during warmup instead of a confusing huge number.
+
+### ETAResult
+```swift
+struct ETAResult {
+    let durationSeconds: Double
+    let arrivalTime: Date       // Date.now + durationSeconds
+    let distanceMeters: Double  // Haversine straight-line distance to stop
+}
+```
+
+### Reset
+`etaEngine.reset()` is called in `markCurrentStopArrived()` — clears `smoothedSpeed` and `fixCount` so ETA restarts fresh for the next stop.
+
+---
+
+## 23. Bundled Stops & StopsLoader
+
+### What it does
+Provides a set of pre-built Delhi landmark stops (with opening times) that can be loaded instantly without any user input. Used for demos and testing.
+
+### Status
+✅ Implemented
+
+### Files
+- `Resources/stops.json`
+- `StopsLoader.swift`
+
+### stops.json format
+```json
+[
+  {"id":"1","name":"Connaught Place",
+   "coordinate":{"lat":28.6315,"lng":77.2167},
+   "openUntil":"21:00"},
+  ...
+]
+```
+
+`openUntil` is "HH:mm" — a wall-clock time string, not a full ISO date. This is intentional: the same file works on any date because `StopsLoader` parses it relative to today.
+
+### StopsLoader.parseTime
+```swift
+private static func parseTime(_ string: String) -> Date? {
+    let parts = string.split(separator: ":").compactMap { Int($0) }
+    var components = Calendar.current.dateComponents([.year, .month, .day], from: .now)
+    components.hour = parts[0]; components.minute = parts[1]
+    return Calendar.current.date(from: components)
+}
+```
+
+This converts "17:00" to a `Date` representing 5:00 PM today, so `ETAEngine.verdict()` can compare it against `eta.arrivalTime`.
+
+### openUntil in Stop model
+`Stop.openUntil: Date?` is a transient field — excluded from `CodingKeys` just like `isVisited`, so it is never written to or read from disk. It only lives in memory and is populated either by `StopsLoader` or set manually at runtime.
+
+---
+
+*Last updated: July 2026 — covers all features through feature/fr-completion branch.*

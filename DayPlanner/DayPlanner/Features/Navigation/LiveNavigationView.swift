@@ -3,15 +3,10 @@
 //  DayPlanner
 //
 //  FR9 — Live Trip Navigation.
-//  A full-screen map that:
-//   - Shows the user's real-time location as a blue dot (MapKit built-in)
-//   - Draws a live polyline from current position to the next stop
-//   - Updates the ETA every time the user moves 50m
-//   - Shows an "You've Arrived!" banner when within 50m of a stop
-//   - Auto-advances to the next stop when user taps Arrived (or automatically)
+//  Shows real-time GPS tracking, live polyline, ETA, arrival detection.
 //
-//  The map's `.userLocation` + `.userTrackingMode` are handled via the
-//  `showsUserLocation` and `userTrackingMode` map parameters — built into MapKit.
+//  FR2 additions: LocationTrustChip (top overlay)
+//  FR3 additions: ETAEngine speed-based ETA + arrival time + ClosingTimeVerdict rows
 //
 
 import MapKit
@@ -32,6 +27,18 @@ struct LiveNavigationView: View {
             // — Full-screen live map —
             liveMap
                 .ignoresSafeArea()
+
+            // — GPS trust chip (top-left) —
+            VStack {
+                HStack {
+                    LocationTrustChip(trust: viewModel.locationService.latestTrust)
+                        .padding(.leading, 16)
+                        .padding(.top, 60)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .zIndex(5)
 
             // — Overlaid bottom card —
             if viewModel.tripComplete {
@@ -57,7 +64,6 @@ struct LiveNavigationView: View {
         .navigationTitle("Live Navigation")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(viewModel.tripComplete)
-        // Start GPS when view appears, stop when it disappears (saves battery)
         .onAppear  { viewModel.startLiveTracking() }
         .onDisappear { viewModel.stopLiveTracking() }
     }
@@ -67,22 +73,16 @@ struct LiveNavigationView: View {
     @ViewBuilder
     private var liveMap: some View {
         if viewModel.locationService.isDenied {
-            // Show a helpful message if the user has denied location access
             locationDeniedView
         } else {
             Map(position: $viewModel.cameraPosition) {
-
-                // Blue dot — shows the user's real-time position.
-                // This is MapKit's built-in user location annotation.
                 UserAnnotation()
 
-                // Live polyline from current location to next stop
                 if let polyline = viewModel.livePolyline {
                     MapPolyline(polyline)
                         .stroke(.blue, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 }
 
-                // Pins for all stops — numbered, colour-coded
                 ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { index, stop in
                     Annotation("", coordinate: stop.coordinate) {
                         LiveStopPin(
@@ -102,17 +102,16 @@ struct LiveNavigationView: View {
     @ViewBuilder
     private var bottomOverlay: some View {
         VStack(spacing: 12) {
-
-            // Progress bar across all stops
             LiveProgressBar(viewModel: viewModel)
 
-            // Current stop info + ETA card
             if let stop = viewModel.currentStop {
                 LiveStopCard(
                     stop: stop,
                     stopLabel: viewModel.stopCountLabel,
                     eta: viewModel.formattedETA,
+                    arrivalTime: viewModel.formattedArrivalTime,
                     etaLoading: viewModel.etaIsLoading,
+                    verdict: viewModel.closingTimeVerdict,
                     onNavigate: { viewModel.navigateInMaps() },
                     onArrived:  { viewModel.markCurrentStopArrived() }
                 )
@@ -148,9 +147,48 @@ struct LiveNavigationView: View {
     }
 }
 
+// MARK: - Location Trust Chip
+
+private struct LocationTrustChip: View {
+    let trust: LocationTrust?
+
+    private var dotColor: Color {
+        switch trust {
+        case .trusted:    return .green
+        case .degraded:   return .yellow
+        case .untrusted:  return .red
+        case nil:         return .gray
+        }
+    }
+
+    private var label: String {
+        switch trust {
+        case .trusted:    return "GPS Good"
+        case .degraded:   return "GPS Weak"
+        case .untrusted:  return "GPS Lost"
+        case nil:         return "GPS…"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 8, height: 8)
+            Text(label)
+                .font(.caption2.bold())
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+    }
+}
+
 // MARK: - Live Stop Pin
 
-/// Numbered pin — green with checkmark if completed, blue if current, gray if future.
 private struct LiveStopPin: View {
     let number: Int
     let isCompleted: Bool
@@ -178,7 +216,6 @@ private struct LiveStopPin: View {
                     .foregroundStyle(.white)
             }
         }
-        // Pulse animation on the current stop to draw attention
         .scaleEffect(isCurrent ? 1.2 : 1.0)
         .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true),
                    value: isCurrent)
@@ -205,28 +242,55 @@ private struct LiveProgressBar: View {
     }
 }
 
+// MARK: - Closing Verdict Row
+
+private struct ClosingVerdictRow: View {
+    let verdict: ClosingTimeVerdict
+
+    var body: some View {
+        switch verdict {
+        case .makeIt:
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text("You'll make it").font(.caption.bold()).foregroundStyle(.green)
+            }
+        case .cuttingClose:
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text("Cutting it close").font(.caption.bold()).foregroundStyle(.orange)
+            }
+        case .wontMakeIt:
+            HStack(spacing: 6) {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+                Text("Won't make it").font(.caption.bold()).foregroundStyle(.red)
+            }
+        case .noClosingTime:
+            EmptyView()
+        }
+    }
+}
+
 // MARK: - Live Stop Card
 
 private struct LiveStopCard: View {
     let stop: Stop
     let stopLabel: String
     let eta: String
+    let arrivalTime: String
     let etaLoading: Bool
+    let verdict: ClosingTimeVerdict
     let onNavigate: () -> Void
     let onArrived: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-
-            // Drag handle
             RoundedRectangle(cornerRadius: 3)
                 .fill(.secondary.opacity(0.4))
                 .frame(width: 36, height: 4)
                 .padding(.top, 10)
 
             VStack(alignment: .leading, spacing: 12) {
-
-                // Stop header
+                // Stop header + ETA badge
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Stop \(stopLabel)".uppercased())
@@ -240,7 +304,6 @@ private struct LiveStopCard: View {
                             .lineLimit(1)
                     }
                     Spacer()
-                    // ETA badge
                     VStack(spacing: 2) {
                         if etaLoading {
                             ProgressView().scaleEffect(0.8)
@@ -248,13 +311,22 @@ private struct LiveStopCard: View {
                             Text(eta)
                                 .font(.title3.bold())
                                 .foregroundStyle(.blue)
-                            Text("ETA")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            if !arrivalTime.isEmpty {
+                                Text("Arrives \(arrivalTime)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("ETA")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
-                    .frame(width: 72)
+                    .frame(width: 90)
                 }
+
+                // Closing time verdict
+                ClosingVerdictRow(verdict: verdict)
 
                 Divider()
 
@@ -298,7 +370,6 @@ private struct LiveStopCard: View {
 
 // MARK: - Arrival Banner
 
-/// Slides in from the top when the user is within 50m of the current stop.
 private struct ArrivalBanner: View {
     let stopName: String
     let onArrived: () -> Void
