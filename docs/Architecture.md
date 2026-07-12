@@ -1,4 +1,4 @@
-# DayPlanner — Architecture
+# PlanDay — Architecture
 
 ## Pattern: MVVM
 
@@ -6,130 +6,203 @@ The app follows MVVM (Model-View-ViewModel). Here's what each layer does:
 
 | Layer | Responsibility | Example files |
 |---|---|---|
-| **Model** | Pure data, no UI | `Trip.swift`, `Stop.swift` |
-| **ViewModel** | Holds screen state, talks to Services | `HomeViewModel.swift` |
-| **View** | Displays data from ViewModel, no logic | `HomeView.swift` |
-| **Service** | Does the heavy work (network, disk, GPS) | `RouteService.swift` |
+| **Model** | Pure data, no UI | `Trip.swift`, `DayPlan.swift`, `UserProfile.swift` |
+| **ViewModel** | Holds screen state, talks to Services | `HomeViewModel.swift`, `RouteOptimizerViewModel.swift` |
+| **View** | Displays data from ViewModel, no logic | `HomeView.swift`, `RouteOptimizerView.swift` |
+| **Service** | Does the heavy work (network, disk, GPS) | `RouteService.swift`, `LocationService.swift` |
 
-The rule: **Views never call Services directly.** They always go through a ViewModel.
+**Rule:** Views never call Services directly. They always go through a ViewModel.
 
 ---
 
-## File Layout
+## Full File Map
 
 ```
 Models/
   Trip.swift                    — Stop, Trip, TravelMode structs
+  DayPlan.swift                 — DayPlan struct, PlanStatus enum
+  PlanItem.swift                — Union enum (singleDay | multiDayTrip), Codable
+  UserProfile.swift             — UserProfile, ProfileColor, ProfileAvatar
 
 Services/
-  RouteService.swift            — MKDirections + nearest-neighbor routing
+  RouteService.swift            — MKDirections + MinHeap nearest-neighbour routing
+  MinHeap.swift                 — Generic binary min-heap (O(log n) insert/extract)
   PlaceSearchService.swift      — MKLocalSearch with debounce
   NavigationService.swift       — Apple Maps URL launcher + MKDirections steps
-  TripHistoryService.swift      — JSON read/write to Documents folder
+  TripHistoryService.swift      — JSON read/write to Documents folder (per-profile)
   LocationService.swift         — CLLocationManager wrapper (@Observable)
+  ProfileService.swift          — Profile CRUD, active profile, per-profile isolation
+  NotificationService.swift     — UNUserNotificationCenter, evening + morning reminders
 
 ViewModels/
-  HomeViewModel.swift           — Home screen state, auto-load/save trip
-  TripBuilderViewModel.swift    — Stop list, map camera, search coordination
-  RouteOptimizerViewModel.swift — RouteState enum, camera fitting
-  ItineraryViewModel.swift      — Cascading arrival times, minute overrides
-  NavigationViewModel.swift     — Stop progression, step fetching
-  LiveNavigationViewModel.swift — Real-time GPS, ETA, auto-arrival
+  HomeViewModel.swift           — Plans list, FAB state, edit/delete, notification scheduling
+  DayPlanBuilderViewModel.swift — Stop list, search, duration editing (single day)
+  TripBuilderViewModel.swift    — Multi-day stops, day tabs, edit mode
+  RouteOptimizerViewModel.swift — RouteState, GPS integration, edit mode, re-optimise
+  ItineraryViewModel.swift      — Cascading arrival times, start time, minute overrides
+  NavigationViewModel.swift     — Stop progression, step fetching from MKDirections
+  LiveNavigationViewModel.swift — Real-time GPS, ETA, auto-arrival at 50m
   TripHistoryViewModel.swift    — Grouped history list, delete
   (Settings has no ViewModel — uses @AppStorage directly)
 
 Features/
-  Onboarding/   OnboardingView, OnboardingPageView
-  Home/         HomeView
-  TripBuilder/  TripBuilderView, PlaceSearchResultRow
-  RouteOptimizer/ RouteOptimizerView
-  Itinerary/    ItineraryView
-  Navigation/   NavigationView, LiveNavigationView
-  TripHistory/  TripHistoryView (+ TripDetailView inside)
-  Settings/     SettingsView
+  Splash/         SplashScreenView (root), WelcomeScreenView
+  Onboarding/     OnboardingView, OnboardingPageView
+  Home/           HomeView (greeting, cards, FAB, swipe actions)
+  Profiles/       ProfileCreationView, ProfileSelectionView, ProfileSwitcherView
+  DayPlanBuilder/ DayPlanBuilderView, StopRow, StopDurationPickerSheet
+  TripBuilder/    TripBuilderView, TripMetadataForm, PlaceSearchResultRow
+  TripDetail/     TripDetailView
+  RouteOptimizer/ RouteOptimizerView (map, bottom card, edit sheet, toasts)
+  Itinerary/      ItineraryView, TimelineRow, StopCard, StartTimePicker
+  Navigation/     NavigationView, LiveNavigationView
+  TripHistory/    TripHistoryView
+  Settings/       SettingsView
 
 Components/
   TripSummaryCard.swift         — Reused on Home and TripDetailView
+  Color+Hex.swift               — Color.hex() static func (avoids iOS 26 conflict)
 ```
 
 ---
 
-## Key Swift / SwiftUI Patterns Used
+## Key Swift / SwiftUI Patterns
 
 ### @Observable (iOS 17+)
-Modern replacement for `ObservableObject + @Published`. Any property read inside a SwiftUI `body` is automatically tracked — no need to mark individual properties.
+Modern replacement for `ObservableObject + @Published`. Any property read inside a SwiftUI `body` is automatically tracked.
 
 ```swift
-@Observable
-@MainActor
+@Observable @MainActor
 final class HomeViewModel {
-    var currentTrip: Trip? = nil   // SwiftUI auto-tracks this
+    var items: [PlanItem] = []   // SwiftUI auto-tracks reads of this
 }
 ```
 
 ### @AppStorage
-Direct wrapper around UserDefaults. Used for settings (name, appearance, travel mode) and the onboarding flag.
+Direct wrapper around UserDefaults. Used for settings, flags, and profiles.
 
 ```swift
-@AppStorage("userName") private var userName = "there"
+@AppStorage("appearanceMode") private var appearanceMode = "system"
 ```
 
 ### actor (thread safety)
-`RouteService` and `NavigationService` are Swift actors — Swift guarantees only one piece of code runs inside them at a time, preventing data races during parallel network calls.
+`RouteService` and `NavigationService` are Swift `actor`s — Swift guarantees serial access, preventing data races during parallel MKDirections calls.
 
 ### async/await
-All network calls (MKDirections, MKLocalSearch, CLLocationManager) use Swift's async/await. No Combine, no callbacks.
+All async work (MKDirections, MKLocalSearch, CLLocationManager) uses Swift async/await. No Combine anywhere.
 
 ### .task modifier
-Used instead of `.onAppear + Task {}`. Automatically cancels the async work if the view disappears before it finishes.
+Preferred over `.onAppear + Task {}`. Automatically cancels async work if the view disappears.
+
+### withObservationTracking
+Used in `LiveNavigationViewModel` to observe `LocationService.currentLocation` changes without Combine — the modern @Observable equivalent of `sink`.
 
 ---
 
-## Data Flow for Route Calculation
+## Data Flow: Route Calculation
 
 ```
-User taps "Confirm Trip" in TripBuilderView
-    → TripBuilderViewModel.confirmTrip() calls onConfirm closure
-    → HomeViewModel.setTrip(trip) saves to TripHistoryService + sets currentTrip
-    → HomeView shows TripExistsSection
-    → User taps "View Route"
-    → RouteOptimizerView appears, .task calls viewModel.calculateRoute()
-    → RouteOptimizerViewModel calls RouteService.computeRoute(for:trip)
-        → RouteService.nearestNeighborOrder() reorders stops (Haversine distance)
-        → RouteService.fetchLeg() calls MKDirections for each consecutive pair
-    → Returns ComputedRoute with orderedStops + legs + polylines
-    → routeState = .success(route) → SwiftUI re-renders map + bottom card
+User taps "Create Trip" in TripBuilderView
+  → TripBuilderViewModel.confirm() calls onConfirmed closure
+  → HomeViewModel.saveTrip() → TripHistoryService.save() → reload()
+  → NotificationService.scheduleReminder() schedules evening + morning alerts
+  → HomeView shows TripCard
+
+User taps "View Route"
+  → RouteOptimizerView appears
+  → .task calls viewModel.calculateRoute()
+  → LocationService.requestPermission() (if not determined)
+  → LocationService.startTracking() → reads currentLocation?.coordinate
+  → RouteService.computeRoute(for: dayPlan, startingCoordinate: gpsCoord)
+      → nearestNeighborOrder(stops:startingCoordinate:)
+          → if gpsCoord != nil: use GPS as invisible origin for first pick
+          → MinHeap built per step, extractMin() = nearest stop — O(n log n)
+          → otherwise: first user-added stop = origin (fallback)
+      → buildRoute(orderedStops:) → fetchLeg() per consecutive pair
+          → MKDirections.Request → .calculate() → RouteLeg (distance, time, polyline)
+  → ComputedRoute returned → routeState = .success(route)
+  → SwiftUI re-renders map + bottom card with numbered pins + polyline
+```
+
+## Data Flow: Live Navigation
+
+```
+CLLocationManager (hardware GPS, fires every 10m)
+  → LocationService.currentLocation updates (@Observable)
+    → LiveNavigationViewModel (withObservationTracking loop)
+      → handleLocationUpdate(location)
+          ├── MapCamera: tilted 3D, follows heading, 800m altitude
+          ├── Check distance to currentStop < 50m → showingArrivalBanner = true
+          └── if moved 50m+ from lastRouteCalcLocation:
+              → MKDirections from current GPS → next stop
+              → livePolyline + etaSeconds updated
+                → LiveNavigationView re-renders map + ETA card
+```
+
+## Data Flow: Re-optimise After Stop Reached
+
+```
+onStopReached(stop) called
+  → visitedStopIDs.insert(stop.id)
+  → remaining = orderedStops.filter { !visitedStopIDs.contains($0.id) }
+  → RouteService.computeRoute(remainingStops: remaining, from: gpsCoord)
+      → nearestNeighborOrder with GPS as new origin
+      → buildRoute for remaining legs only
+  → routeState = .success(newRoute)
+  → reoptimiseToastMessage = "Route updated — X stops remaining"
+  → showReoptimiseToast = true (auto-dismiss 2.5s)
 ```
 
 ---
 
 ## Persistence
 
-Trips are stored as a JSON array at:
+### Trip History
+Each profile's trips stored at:
 ```
-/var/mobile/.../Documents/trip_history.json
+Documents/history_<profileID>.json
+```
+- `TripHistoryService.save(_:)` — upserts by ID (replaces existing, appends new)
+- `TripHistoryService.loadAll()` — called in `HomeViewModel.init()`
+- Writes use `.atomic` — file never half-written on crash
+
+### Profiles
+```
+UserDefaults key: "user_profiles_v1"  → [UserProfile] (JSON)
+UserDefaults key: "active_profile_id_v1" → UUID string
 ```
 
-- `TripHistoryService.save(_:)` — called automatically when a trip is confirmed
-- `TripHistoryService.loadTodaysTrip()` — called in `HomeViewModel.init()` so the trip reappears on launch
-- Writes use `.atomic` option — file is never left half-written if the app crashes
+### Settings
+```
+UserDefaults keys (all via @AppStorage):
+  "defaultTravelMode"       → String (TravelMode.rawValue)
+  "appearanceMode"          → String ("system" | "light" | "dark")
+  "notificationsEnabled"    → Bool
+  "hasCompletedOnboarding"  → Bool
+  "hasSeenWelcomeScreen"    → Bool
+```
 
 ---
 
-## Location Tracking (FR9)
+## MinHeap Algorithm
 
+`MinHeap<T>` in `MinHeap.swift` is a generic binary min-heap (pure Swift struct).
+
+**Why:** Nearest-neighbour was O(n²) using `Array.min(by:)` inside a loop. MinHeap reduces it to O(n log n).
+
+**How it works:**
 ```
-CLLocationManager (iOS GPS hardware)
-    ↓ fires delegate every 10m moved
-LocationService (@Observable, @MainActor)
-    ↓ currentLocation property updates
-LiveNavigationViewModel (observes via withObservationTracking)
-    ↓ handleLocationUpdate()
-        ├── moves MapCamera (3D tilted view, follows heading)
-        ├── checks distance to current stop (auto-arrive at 50m)
-        └── recalculates MKDirections from current position (every 50m)
-            ↓
-LiveNavigationView re-renders map + ETA card
+Insert:     append to array → siftUp   (O(log n))
+ExtractMin: swap root↔last → removeLast → siftDown (O(log n))
+Invariant:  heap[i] ≤ heap[2i+1] and heap[i] ≤ heap[2i+2]
+```
+
+**Usage in RouteService:**
+```swift
+// At each step, build heap of all unvisited stops keyed by Haversine distance
+var heap = MinHeap<(distance: Double, stop: Stop)> { $0.distance < $1.distance }
+for stop in unvisited { heap.insert((haversine(from: current, to: stop.coordinate), stop)) }
+let nearest = heap.extractMin()!
 ```
 
 ---
@@ -137,7 +210,7 @@ LiveNavigationView re-renders map + ETA card
 ## Branch Strategy
 
 ```
-main          ← production-ready code
-  └── develop ← integration branch, all FRs merge here first
-        └── feature/FR{n}-name ← one branch per feature
+main          ← production-ready, merged via PR
+  └── develop ← integration (all FRs merge here first)
+        └── feature/xxx ← one branch per feature
 ```

@@ -1,257 +1,290 @@
-# DayPlanner — App Overview
+# PlanDay — App Overview
 
-## What is DayPlanner?
+## What is PlanDay?
 
-DayPlanner is a personal iOS app that helps you plan and navigate a full day of visiting multiple places — like a smarter version of Apple Maps mixed with a daily itinerary planner.
+PlanDay is a personal iOS app that helps you plan and navigate a full day of visiting multiple places — like a smarter version of Apple Maps mixed with a daily itinerary planner.
 
-Imagine you want to spend a Saturday visiting 4-5 places in your city — a museum, a café, a park, a market. Without an app like this, you'd have to:
+Imagine you want to spend a Saturday visiting 4–5 places in your city — a museum, a café, a park, a market. Without an app like this, you'd have to:
 - Manually figure out the best order to visit them
 - Estimate how long travel takes between each place
 - Try to remember what time you need to leave each stop
 - Keep switching between Maps and your notes
 
-DayPlanner solves all of that in one place.
+PlanDay solves all of that in one place.
 
 ---
 
 ## How the App Works — The Full Journey
 
-Here's the complete flow from opening the app to finishing your day trip:
-
 ```
-Open App → Onboarding → Home Screen → Plan Trip → Add Stops
-    → Optimize Route → View Itinerary → Navigate → Trip History
+Open App → Splash Screen → Profile Selection (or Profile Creation on first launch)
+  → Home Screen → Plan Trip → Add Stops → Optimize Route
+  → View Itinerary → Navigate → Trip History
 ```
 
 ---
 
-## Feature 1 — Onboarding (First Launch Experience)
+## Feature 1 — Splash & Welcome Screen
 
 **What it does:**
-When you open the app for the very first time, you see a 3-page welcome carousel that explains what the app does.
+Every time you open the app, a dark blue splash screen appears for ~2.5 seconds with the PlanDay logo, the app name, and a tagline — then automatically advances.
 
-- Page 1: "Plan Your Day" — explains the trip planning concept
-- Page 2: "Optimize Your Route" — explains the smart routing
-- Page 3: "Navigate with Ease" — explains turn-by-turn navigation
+- Logo scales up from 80% → 100% (easeOut animation)
+- Tagline "Your Journey Starts Here ✈️" fades in at 0.8s
+- Subtitle "Plan smarter. Travel better. Live fully." fades in shortly after
+- On first ever launch: advances to Welcome Screen then Profile Creation
+- On returning launches: advances to Profile Selection
 
-At the bottom are Skip, Next, and Get Started buttons. Once you tap "Get Started", the onboarding never shows again — the app remembers you've seen it.
-
-**Why it matters:**
-First-time users immediately understand the app's purpose without having to figure it out themselves.
+The Welcome Screen shows the app heading "Plan Your Perfect Day" and a "Get Started →" button.
 
 ---
 
-## Feature 2 — Home Screen (Your Daily Dashboard)
+## Feature 2 — Profile System
 
 **What it does:**
-The main screen you see every day. It greets you by name with a time-aware greeting:
-- "Good morning, Daksh!" (before noon)
-- "Good afternoon, Daksh!" (noon to 5pm)
-- "Good evening, Daksh!" (5pm to 9pm)
-- "Good night, Daksh!" (after 9pm)
+Supports up to 5 separate user profiles, each with their own name, SF Symbol avatar, accent color, and completely isolated trip history. Similar to Netflix's "Who's watching?" screen.
 
-It also shows today's date.
+**First launch:**
+A Profile Creation screen asks for:
+- Your name (text field, required before proceeding)
+- Avatar (8 SF Symbol options: person, star, heart, bolt, leaf, flame, moon, airplane)
+- Accent color (8 colors)
+Live preview circle updates as you pick. "Let's Go →" button disabled until name entered.
 
-**Two states:**
+**Every launch after:**
+A Netflix-style 2-column grid shows all profiles. Tap to select → go to Home.
+- "+ Add Profile" cell at end of grid (hidden when at 5 profiles)
+- "Manage Profiles" button → rename/delete sheet
 
-1. **No trip planned** — shows a big "Plan Your Day" button with an illustration
-2. **Trip exists** — shows a summary card with your trip name, stop count, total planned time, travel mode, and two buttons: "View Route" and "Edit Trip"
-
-There's also a "Clear Trip" option if you want to start fresh.
-
-**In the toolbar (top right):**
-- Clock icon → Trip History (all your past trips)
-- Gear icon → Settings
+**Why profiles?**
+Each profile has completely isolated data. Switching profiles instantly shows that person's plans. Great for sharing a device (family members, travel companions).
 
 ---
 
-## Feature 3 — Trip Builder (Planning Your Stops)
+## Feature 3 — Onboarding (First Launch Carousel)
 
 **What it does:**
-This is where you actually build your day trip. It opens as a sheet (slides up from the bottom).
+After creating their first profile, new users see a 3-page welcome carousel explaining the app. Never shown again after completion (unless "Reset Onboarding" is tapped in Settings).
+
+- Page 1: "Plan Your Day" — trip planning concept
+- Page 2: "Optimize Your Route" — smart routing
+- Page 3: "Navigate with Ease" — turn-by-turn navigation
+
+---
+
+## Feature 4 — Home Screen (Your Daily Dashboard)
+
+**What it does:**
+The main screen you see every day. Greets you by name with a time-aware greeting ("Good morning", "Good afternoon", "Good evening", "Good night") and today's date.
+
+**Two sections:**
+1. **Today's Focus** — shows any plan with today's date in a highlighted card
+2. **All Plans** — all saved plans sorted newest-first
+
+**Plan cards:**
+- *Day Plan card*: stop count, planned duration, travel mode, "View Route" button
+- *Trip card*: emoji, trip name, days count, total stops, travel mode, "View Trip" button
+
+**Empty state:**
+When no plans exist: large map icon, "No Plans Yet" heading, blue "Create Your First Plan" button.
+
+**FAB (Floating Action Button):**
+Blue + button bottom-right. Tap to expand two options: "Plan a Day" and "Plan a Trip".
+
+**Swipe actions:**
+Swipe left on any card → Edit (blue) + Delete (red) buttons.
+
+---
+
+## Feature 5 — Day Plan Builder
+
+**What it does:**
+A sheet for creating a single-day plan. Search for places, add stops, set durations, pick travel mode.
+
+1. Type a place name → real-time search results (powered by Apple Maps MKLocalSearch)
+2. Tap a result → added to your stop list
+3. Each stop shows a tappable duration badge ("30 min") → opens a slider picker
+4. See all stops on a live map preview
+5. Choose travel mode (Driving / Walking / Transit)
+6. Tap "Save Plan" to confirm
+
+Minimum 2 stops required. Edit mode pre-fills all fields from existing plan.
+
+---
+
+## Feature 6 — Trip Builder (Multi-Day)
+
+**What it does:**
+A 2-step sheet for planning a multi-day trip (up to 7 days).
+
+**Step 1 — Trip Info:**
+- Trip name, emoji (12 options), cover color (8 colors)
+- Start date, number of days (1–7), travel mode
+
+**Step 2 — Add Stops:**
+- Day tab bar at top (if >1 day) — switches between Day 1, Day 2...
+- Search + map + stop list per day
+- Each day must have at least one stop to proceed
+
+---
+
+## Feature 7 — Route Optimizer (Finding the Smartest Order)
+
+**What it does:**
+Automatically figures out the most efficient order to visit your stops — so you don't waste time backtracking.
 
 **How it works:**
-1. **Search for places** — Type any place name (e.g. "Starbucks", "Central Park", "MOMA") and the app searches using Apple Maps in real time
-2. **See search results** — Each result shows the place name, address, and category icon (coffee cup for cafés, tree for parks, etc.)
-3. **Tap to add a stop** — The place gets added to your stops list
-4. **Set time at each stop** — Each stop shows how many minutes you plan to spend there (default 30 min, adjustable)
-5. **Reorder stops** — Drag and drop stops to change the order
-6. **Delete stops** — Swipe left on a stop to remove it
-7. **See stops on a map** — A live map shows pins for all your added stops
-8. **Choose travel mode** — Pick Driving, Walking, or Transit
-9. **Confirm** — Tap "Confirm Trip" when you're happy with your stops
+1. Uses your current GPS location as the starting point (Stop #1 = closest stop to you)
+2. Nearest-neighbour algorithm with binary min-heap (O(n log n) efficiency)
+3. Calls Apple's MKDirections to get real road distances, travel times, and route polylines
+4. Draws the route as a blue line on a full-screen map
 
-You need at least 2 stops to proceed.
+**What you see:**
+- Full-screen map with numbered pins (green = first, red = last, blue = middle)
+- Bottom card: total distance, travel time, stop count
+- Ordered stop list with travel time to next stop
+- **Edit button** → drag-to-reorder mode
+
+**GPS unavailable?**
+If location permission is denied, a banner appears: "Using first added stop as start (location access unavailable)"
 
 ---
 
-## Feature 4 — Route Optimizer (Finding the Smartest Order)
+## Feature 8 — Drag-to-Reorder Route
 
 **What it does:**
-Once you confirm your trip, the app automatically figures out the most efficient order to visit your stops — so you don't waste time backtracking.
+Manually rearrange stops in the route by dragging, then recalculate with your custom order.
 
-**How it works under the hood:**
-1. Uses a "nearest-neighbor" algorithm — starts from your first stop, always goes to the closest unvisited stop next
-2. Calls Apple's routing API (MKDirections) to get real road distances and travel times between each pair of stops
-3. Draws the route as a blue line on a full-screen map
+**How to use:**
+1. Tap "Edit" on the route screen
+2. Drag the ≡ handle on any middle stop up or down
+3. First and last stops are locked (🔒) — only middle stops can be reordered
+4. "Recalculate Route" button turns blue once you've made a change
+5. Tap to recalculate — app re-fetches travel times for your new sequence
+6. Success toast appears: "Route updated based on your preferences"
 
-**What you see:**
-- A full-screen map with a blue route line connecting all stops in order
-- Numbered pins: green for your first stop, red for your last, blue for everything in between
-- A bottom card showing:
-  - Total distance (e.g. "12.4 km")
-  - Total travel time (e.g. "1h 23m")
-  - Number of stops
-  - A list of stops in optimized order, each showing travel time + distance to the next stop
-- Two buttons: "Itinerary" and "Start Trip"
-
-**Refresh button:**
-Top-right corner — recalculates the route if you want to try again.
+**Cancel:**
+Tap Cancel → if you've made changes, "Discard Changes?" confirmation appears.
 
 ---
 
-## Feature 5 — Day Itinerary (Your Hour-by-Hour Schedule)
+## Feature 9 — Day Itinerary (Hour-by-Hour Schedule)
 
 **What it does:**
-Shows a beautiful vertical timeline of your entire day — exactly what time you'll arrive at each stop, how long you'll stay, and when you'll leave to drive to the next one.
+A vertical timeline of your day — exact arrival and departure times for every stop, cascading automatically.
 
 **What you see:**
-- A summary header with your trip name, date, start time, total duration, and stop count
-- A vertical timeline with a coloured dot and connecting line for each stop
-- Each stop card shows: name, address, arrival time, departure time, and how long you're spending there
-- Between stops: a small connector showing "→ 12 min · 3.2 km drive"
-- At the bottom: projected finish time
+- Summary header: trip name, date, start time, total duration, stop count
+- Timeline rows: coloured dot + connecting line + stop card
+- Each stop card: name, address, arrival–departure time range, duration badge
+- Between stops: "→ 12 min · 3.2 km drive"
+- Footer: projected finish time
 
 **What you can edit:**
-- **Start time** — Tap the blue "Start 9:00 AM" button to change when your day begins. A wheel picker appears
-- **Time at each stop** — Tap the "45 min" badge on any stop to change it. A slider appears (5 min to 4 hours) with quick-pick buttons (15m, 30m, 45m, 60m, 90m)
-- All changes cascade automatically — if you spend more time at stop 2, all arrival times after it update instantly
+- **Start time** — tap "Start 9:00 AM" → wheel time picker
+- **Duration at each stop** — tap the "45 min" badge → slider (5–240 min) + quick presets
+
+All changes cascade: edit stop 2's duration → every arrival time after it updates instantly.
 
 ---
 
-## Feature 6 — Turn-by-Turn Navigation (Guided Stop-by-Step)
+## Feature 10 — Stop Duration Editor
 
 **What it does:**
-Guides you through your trip one stop at a time, with in-app directions and an Apple Maps launcher.
+Anywhere you see a "X min" badge on a stop — tap it to open a half-height sheet and change the duration.
 
-**What you see:**
-- A progress bar at the top — one segment per stop, green = visited, blue = current, gray = upcoming
-- A mini map centred on your current destination
-- A "Current Stop" card with the stop name and two buttons:
-  - **Navigate** — opens Apple Maps with full GPS turn-by-turn directions to this stop
-  - **Arrived** — marks this stop as done and moves to the next one
-- A collapsible "Step-by-step directions" panel — tap to expand and see each maneuver (e.g. "Turn left onto Market St — 0.3 km")
-- An "Up Next" list showing upcoming stops
-- A "Visited" list showing completed stops (with strikethrough)
-- A **"Start Live Navigation"** button to switch to real-time GPS tracking (FR9)
-
-**When you've visited all stops:**
-A "Trip Complete!" celebration screen appears with a checkmark and a "Back to Home" button.
+- Slider: 5 min to 240 min, step of 5
+- Quick preset buttons: 15m, 30m, 45m, 60m, 90m
+- Available in: Day Plan Builder, Trip Builder, and Day Itinerary
 
 ---
 
-## Feature 7 — Trip History (Your Past Trips)
+## Feature 11 — Turn-by-Turn Navigation (Guided Stop-by-Step)
 
 **What it does:**
-Every trip you plan is automatically saved to your phone. You can browse all your past trips, grouped by time period.
+Guides you through your trip one stop at a time with in-app directions and an Apple Maps launcher.
 
-**What you see:**
-- Trips grouped into three sections: **Today**, **This Week**, **Earlier**
-- Each row shows: date badge, trip name, stop count, total planned time, and travel mode icon
-- Swipe left on any trip to delete it
-- Tap any trip to see the full detail view
-
-**Trip Detail View:**
-Shows the full `TripSummaryCard` (same as home screen) plus a numbered list of all stops with their addresses and planned durations.
-
-**Auto-save:**
-You never have to manually save. The moment you confirm a trip in the Trip Builder, it's saved automatically. If you close and reopen the app, today's trip loads automatically on the home screen.
+- Progress bar at top — green = visited, blue = current, gray = upcoming
+- Mini map centred on current destination
+- "Navigate" → opens Apple Maps with full GPS directions
+- "Arrived" → marks stop done, moves to next
+- Expandable step-by-step directions panel (e.g. "Turn left onto Market St — 0.3 km")
+- "Up Next" list of upcoming stops
+- Trip Complete! celebration when all stops visited
 
 ---
 
-## Feature 8 — Settings (Personalise Your App)
+## Feature 12 — Live GPS Navigation
 
 **What it does:**
-A settings screen accessible from the gear icon on the Home screen.
+Real-time GPS tracking with a live route line from your current position to the next stop.
 
-**Four sections:**
+- 3D tilted map view (like Apple Maps navigation)
+- Blue dot showing your exact location, following your movement
+- Live route line updating every 50 metres
+- Live ETA recalculating as you move
+- Auto-arrival detection: when within 50m of a stop, "You've arrived!" banner slides in
+- Route re-optimises for remaining stops after each arrival
 
-### Profile
-- Set your name — this appears in the "Good morning, NAME!" greeting
-- Shows an avatar circle with your initials
-- Name is saved instantly when you tap "Save"
+**GPS permission:** iOS asks "Allow PlanDay to use your location" on first use.
 
-### Trip Defaults
-- Set your default travel mode (Driving / Walking / Transit)
-- Pre-selected every time you start planning a new trip
-
-### Appearance
-- **System** — follows your iPhone's light/dark mode setting
-- **Light** — always light mode
-- **Dark** — always dark mode
-- Changes apply to the entire app instantly, no restart needed
-
-### About + Danger Zone
-- Shows app version number
-- "Reset Onboarding" button — shows the welcome screens again next time you open the app (useful for testing)
+**Battery:** GPS tracking stops automatically when you leave this screen.
 
 ---
 
-## Feature 9 — Live GPS Navigation (Real-Time Tracking)
+## Feature 13 — Trip History
 
 **What it does:**
-The most advanced feature. Turns DayPlanner into a real-time navigation app — like having a simplified Google Maps built in, but specifically for your planned day trip.
+Every plan is automatically saved. Browse all past trips grouped by time period.
 
-**What you see:**
-- A full-screen map in 3D tilted view (like Apple Maps navigation mode)
-- A **blue dot** showing your exact real-time location, moving as you move
-- A **live blue route line** drawn from your current position to the next stop — updates every time you move 50+ metres
-- Numbered pins for all your stops (green checkmark = visited, blue pulsing = current, gray = upcoming)
-- A bottom card showing:
-  - Current stop name and address
-  - Live **ETA** that recalculates as you move (e.g. "12 min")
-  - **Maps** button — opens Apple Maps
-  - **Arrived** button — manually mark as arrived
-
-**Smart auto-arrival:**
-When you get within 50 metres of a stop, a green banner slides in from the top:
-> "You've arrived! [Stop Name]" — [Mark Arrived button]
-
-Tap "Mark Arrived" and the app automatically advances to the next stop and starts calculating the route to it.
-
-**Permission:**
-On first use, iOS asks: "Allow DayPlanner to use your location while using the app?" — you must tap Allow for this feature to work.
-
-**Battery note:**
-GPS tracking stops automatically when you leave the navigation screen, so it doesn't drain your battery in the background.
+- Three groups: **Today**, **This Week**, **Earlier**
+- Tap any trip → full detail view
+- Swipe left to delete
+- Each profile has completely separate history
 
 ---
 
-## Technical Summary (for the curious)
+## Feature 14 — Plan Reminder Notifications
 
-| Area | Technology used |
+**What it does:**
+Automatic reminders so you never forget a planned trip.
+
+- **Evening before** (7:00 PM): "Tomorrow: [Plan Name] — Your plan starts tomorrow"
+- **Morning of** (8:00 AM): "Today: [Plan Name] — Your plan starts today 🗺️"
+
+Notifications are created automatically when you save a plan and cancelled when you delete it. The toggle in Settings → Notifications lets you turn them on/off. If iOS permission is denied, a button links directly to iPhone Settings.
+
+---
+
+## Feature 15 — Settings
+
+**What it does:**
+Personalise the app. All settings are instant — no save button needed.
+
+- **Profile** — tap to manage profiles (rename, delete, add new)
+- **Trip Defaults** — default travel mode pre-selected in every new plan
+- **Notifications** — toggle reminders on/off
+- **Appearance** — System (follows iPhone) / Light / Dark — applies instantly everywhere
+- **About** — app version
+- **Reset Onboarding** — shows welcome screens again on next launch
+
+---
+
+## Technical Summary
+
+| Area | Technology |
 |---|---|
-| UI framework | SwiftUI (Apple's modern UI framework) |
-| Architecture | MVVM (Model-View-ViewModel) |
-| Maps | MapKit (Apple's free mapping framework) |
-| Routing | MKDirections (Apple's free routing API) |
-| Place search | MKLocalSearch (Apple's free search API) |
-| GPS tracking | CoreLocation + CLLocationManager |
-| Data persistence | JSON files via FileManager |
-| Settings storage | UserDefaults via @AppStorage |
-| Async programming | Swift async/await |
-| Minimum iOS | iOS 17+ |
-| Cost of all APIs | Free — no paid third-party services |
-
----
-
-## What Makes This App Different
-
-1. **Everything is free** — no Google Maps API, no paid services, uses only Apple's built-in frameworks
-2. **Offline-friendly** — once a trip is confirmed, the map data and route are cached
-3. **Smart ordering** — the nearest-neighbor algorithm means you never waste time backtracking across a city
-4. **Cascading itinerary** — change one stop's duration and every arrival time after it updates automatically
-5. **Persistent** — your trip survives app restarts; history is saved automatically
+| UI framework | SwiftUI (iOS 17+) |
+| Architecture | MVVM |
+| Maps | MapKit |
+| Routing | MKDirections (free, Apple) |
+| Place search | MKLocalSearch (free, Apple) |
+| GPS | CoreLocation + CLLocationManager |
+| Route algorithm | Nearest-neighbour + binary min-heap (O(n log n)) |
+| Notifications | UserNotifications framework |
+| Data storage | JSON files + UserDefaults |
+| Async | Swift async/await (no Combine) |
+| Cost | Free — no paid third-party APIs |
 
 ---
 

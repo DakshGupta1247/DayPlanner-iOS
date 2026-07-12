@@ -22,6 +22,8 @@ struct Stop: Identifiable, Codable, Hashable {
     var latitude: Double
     var longitude: Double
     var minutesToSpend: Int
+    // Transient flag — not persisted to disk (excluded from Codable via custom keys)
+    var isVisited: Bool = false
 
     nonisolated var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -35,6 +37,11 @@ struct Stop: Identifiable, Codable, Hashable {
         self.latitude = latitude
         self.longitude = longitude
         self.minutesToSpend = minutesToSpend
+    }
+
+    // Exclude isVisited from Codable so existing JSON never breaks
+    enum CodingKeys: String, CodingKey {
+        case id, name, address, latitude, longitude, minutesToSpend
     }
 }
 
