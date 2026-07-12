@@ -317,8 +317,6 @@ struct StopDurationPickerSheet: View {
                     }
                 }
 
-                Spacer()
-
                 Button {
                     onConfirm(Int(minutes))
                     dismiss()
@@ -332,6 +330,7 @@ struct StopDurationPickerSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .padding(.horizontal)
+                .padding(.bottom, 8)
             }
             .padding(.top, 24)
             .navigationTitle("Time at Stop")
