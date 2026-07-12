@@ -32,10 +32,15 @@ struct SplashScreenView: View {
     // true  = user already saw it → go straight to HomeView.
     @AppStorage("hasSeenWelcomeScreen") private var hasSeenWelcomeScreen = false
 
+    // Reads the appearance preference saved by SettingsView.
+    // Applied here because SplashScreenView is the true root of the view hierarchy.
+    @AppStorage("appearanceMode") private var appearanceMode = "system"
+
     // Dark navy — the brand background colour used across splash and welcome.
     private let navyBackground = Color(red: 0.04, green: 0.09, blue: 0.16) // #0A1628
 
     var body: some View {
+        Group {
         if isActive {
             // Timer fired — hand off to the correct next screen.
             if hasSeenWelcomeScreen {
@@ -50,6 +55,16 @@ struct SplashScreenView: View {
         } else {
             // The actual splash content.
             splashContent
+        }
+        }
+        .preferredColorScheme(resolvedColorScheme)
+    }
+
+    private var resolvedColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark":  return .dark
+        default:      return nil
         }
     }
 
