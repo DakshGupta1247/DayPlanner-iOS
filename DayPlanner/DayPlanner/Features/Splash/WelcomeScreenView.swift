@@ -31,9 +31,23 @@ struct WelcomeScreenView: View {
     // from ever showing again after the first time.
     @AppStorage("hasSeenWelcomeScreen") private var hasSeenWelcomeScreen = false
 
-    // Brand colours — kept consistent with SplashScreenView.
-    private let navyBackground = Color(red: 0.04, green: 0.09, blue: 0.16) // #0A1628
-    private let royalBlue      = Color(red: 0.15, green: 0.39, blue: 0.92) // #2563EB
+    private let royalBlue = Color(red: 0.15, green: 0.39, blue: 0.92) // #2563EB
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var welcomeBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.04, green: 0.09, blue: 0.16)
+            : Color(red: 0.96, green: 0.97, blue: 0.99)
+    }
+
+    private var headingColor: Color {
+        colorScheme == .dark ? .white : Color(red: 0.1, green: 0.1, blue: 0.15)
+    }
+
+    private var subtitleColor: Color {
+        colorScheme == .dark ? .white.opacity(0.6) : Color.secondary
+    }
 
     var body: some View {
         if navigateToHome {
@@ -49,8 +63,7 @@ struct WelcomeScreenView: View {
 
     private var welcomeContent: some View {
         ZStack {
-            // Full-screen dark navy background
-            navyBackground.ignoresSafeArea()
+            welcomeBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
 
@@ -69,7 +82,7 @@ struct WelcomeScreenView: View {
                 // ── Heading ───────────────────────────────────────────────
                 Text("Plan Your\nPerfect Day")
                     .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(headingColor)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .opacity(headingOpacity)
@@ -78,7 +91,7 @@ struct WelcomeScreenView: View {
                 // ── Subtitle ──────────────────────────────────────────────
                 Text("Organize trips, plan routes,\nand make every day count.")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(subtitleColor)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .opacity(subtitleOpacity)

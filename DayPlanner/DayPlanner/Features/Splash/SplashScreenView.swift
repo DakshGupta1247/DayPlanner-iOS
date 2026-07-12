@@ -36,8 +36,24 @@ struct SplashScreenView: View {
     // Applied here because SplashScreenView is the true root of the view hierarchy.
     @AppStorage("appearanceMode") private var appearanceMode = "system"
 
-    // Dark navy — the brand background colour used across splash and welcome.
-    private let navyBackground = Color(red: 0.04, green: 0.09, blue: 0.16) // #0A1628
+    @Environment(\.colorScheme) private var colorScheme
+
+    // Background: dark navy in dark mode, off-white in light mode.
+    private var splashBackground: Color {
+        colorScheme == .dark
+            ? Color(red: 0.04, green: 0.09, blue: 0.16)  // #0A1628
+            : Color(red: 0.96, green: 0.97, blue: 0.99)  // near-white
+    }
+
+    // Title: white in dark mode, near-black in light mode.
+    private var titleColor: Color {
+        colorScheme == .dark ? .white : Color(red: 0.1, green: 0.1, blue: 0.15)
+    }
+
+    // Tagline: muted white in dark mode, muted gray in light mode.
+    private var taglineColor: Color {
+        colorScheme == .dark ? .white.opacity(0.5) : Color.secondary
+    }
 
     var body: some View {
         Group {
@@ -72,8 +88,7 @@ struct SplashScreenView: View {
 
     private var splashContent: some View {
         ZStack {
-            // Full-screen dark navy background
-            navyBackground.ignoresSafeArea()
+            splashBackground.ignoresSafeArea()
 
             VStack(spacing: 20) {
 
@@ -85,21 +100,17 @@ struct SplashScreenView: View {
                     .scaledToFit()
                     .frame(width: 120, height: 120)
                     .clipShape(RoundedRectangle(cornerRadius: 26))
-                    // Glowing shadow to make the logo pop on the dark bg.
                     .shadow(color: Color(red: 0.15, green: 0.39, blue: 0.92).opacity(0.6),
                             radius: 24, x: 0, y: 8)
-                    // Scale animation: 0.8 → 1.0 on appear.
                     .scaleEffect(logoScale)
 
-                // App name in large bold white
                 Text("PlanDay")
                     .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(titleColor)
 
-                // Tagline in smaller muted text
                 Text("Plan smart. Travel better.")
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(taglineColor)
             }
             .opacity(contentOpacity)
         }
