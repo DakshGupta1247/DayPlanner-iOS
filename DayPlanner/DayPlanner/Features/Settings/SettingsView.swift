@@ -35,6 +35,14 @@ struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    private var resolvedColorScheme: ColorScheme? {
+        switch appearanceMode {
+        case "light": return .light
+        case "dark":  return .dark
+        default:      return nil
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -158,6 +166,8 @@ struct SettingsView: View {
                 }
             }
         }
+        // Apply theme immediately inside the sheet without needing to reopen it.
+        .preferredColorScheme(resolvedColorScheme)
     }
 
     // MARK: - Helpers
