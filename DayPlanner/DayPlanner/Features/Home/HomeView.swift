@@ -17,6 +17,7 @@ struct HomeView: View {
     @State private var viewModel = HomeViewModel()
     @State private var showingSettings = false
     @State private var showingProfiles = false
+    @State private var showingHistory  = false
     @State private var profileService = ProfileService.shared
 
     var body: some View {
@@ -76,8 +77,13 @@ struct HomeView: View {
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { showingSettings = true } label: {
-                            Image(systemName: "gearshape")
+                        HStack(spacing: 4) {
+                            Button { showingHistory = true } label: {
+                                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                            }
+                            Button { showingSettings = true } label: {
+                                Image(systemName: "gearshape")
+                            }
                         }
                     }
                 }
@@ -94,6 +100,9 @@ struct HomeView: View {
         .sheet(isPresented: $showingProfiles) {
             ProfileSwitcherView()
                 .onDisappear { viewModel.reload() }
+        }
+        .sheet(isPresented: $showingHistory) {
+            NavigationStack { TripHistoryView() }
         }
         .sheet(isPresented: $showingSettings) { SettingsView() }
         .sheet(isPresented: $viewModel.showingDayPlanBuilder) {
