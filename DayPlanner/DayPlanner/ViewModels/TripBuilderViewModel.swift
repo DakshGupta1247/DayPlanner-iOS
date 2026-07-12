@@ -3,8 +3,9 @@
 //  DayPlanner (PlanDay)
 //
 //  ViewModel for the multi-day "Plan a Trip" builder sheet.
-//  Manages trip metadata + per-day stop lists.
-//  Upgrade 1 Redesign: adds emoji, coverColor pickers.
+//  Supports both CREATE (default init) and EDIT (init(editing:)) modes.
+//  In edit mode the form is pre-filled with the existing trip's data and
+//  confirm() preserves the original IDs so TripHistoryService upserts correctly.
 //
 
 import MapKit
@@ -40,6 +41,12 @@ final class TripBuilderViewModel {
 
     var onConfirmed: ((Trip) -> Void)?
 
+    // Kept to preserve the original IDs when editing
+    private let existingTripID: UUID?
+    private let existingDayIDs: [UUID]
+
+    var isEditing: Bool { existingTripID != nil }
+
     // MARK: - Computed
 
     var stops: [Stop] {
@@ -51,6 +58,35 @@ final class TripBuilderViewModel {
 
     func date(for index: Int) -> Date {
         Calendar.current.date(byAdding: .day, value: index, to: startDate) ?? startDate
+    }
+
+    // MARK: - Create mode
+    init() {
+        self.existingTripID = nil
+        self.existingDayIDs = []
+    }
+
+    // MARK: - Edit mode — pre-fills all fields from the existing trip
+    // Note: Swift does NOT call didSet during init, so setting numberOfDays
+    // and dayStops independently here is safe.
+    init(editing trip: Trip) {
+        self.existingTripID  = trip.id
+        self.existingDayIDs  = trip.days.map { $0.id }
+        self.tripName        = trip.name
+        self.emoji           = trip.emoji
+        self.coverColor      = trip.coverColor
+        self.travelMode      = trip.travelMode
+        self.startDate       = trip.days.first?.date ?? Calendar.current.startOfDay(for: .now)
+        self.numberOfDays    = trip.days.count
+        self.dayStops        = trip.days.map { $0.stops }
+        self.selectedDayIndex = 0
+        let coord = trip.days.first?.stops.first.map {
+            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+        } ?? CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194)
+        self.cameraPosition = .region(MKCoordinateRegion(
+            center: coord,
+            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+        ))
     }
 
     // MARK: - Intents
@@ -84,13 +120,24 @@ final class TripBuilderViewModel {
     func removeStop(_ stop: Stop) { dayStops[selectedDayIndex].removeAll { $0.id == stop.id } }
 
     func confirm() {
-        let days = (0..<numberOfDays).map { i in
-            DayPlan(name: "Day \(i + 1)",
-                    date: date(for: i),
-                    stops: dayStops[i],
-                    travelMode: travelMode)
+        let days = (0..<numberOfDays).map { i -> DayPlan in
+            // Reuse original day IDs when editing so TripHistoryService upserts correctly
+            let dayID = i < existingDayIDs.count ? existingDayIDs[i] : UUID()
+            return DayPlan(
+                id: dayID,
+                name: "Day \(i + 1)",
+                date: date(for: i),
+                stops: dayStops[i],
+                travelMode: travelMode
+            )
         }
-        let trip = Trip(name: tripName, emoji: emoji, coverColor: coverColor, days: days)
+        let trip = Trip(
+            id: existingTripID ?? UUID(),
+            name: tripName,
+            emoji: emoji,
+            coverColor: coverColor,
+            days: days
+        )
         onConfirmed?(trip)
     }
 
