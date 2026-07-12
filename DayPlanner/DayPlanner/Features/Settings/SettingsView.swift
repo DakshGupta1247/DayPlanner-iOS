@@ -24,11 +24,14 @@ import SwiftUI
 
 struct SettingsView: View {
 
-    @AppStorage("defaultTravelMode")  private var defaultTravelMode = TravelMode.driving.rawValue
-    @AppStorage("appearanceMode")     private var appearanceMode = "system"
+    @AppStorage("defaultTravelMode")       private var defaultTravelMode = TravelMode.driving.rawValue
+    @AppStorage("appearanceMode")          private var appearanceMode = "system"
+    // Whether the user wants reminder notifications for their plans.
+    @AppStorage("notificationsEnabled")    private var notificationsEnabled = true
 
     @State private var profileService = ProfileService.shared
     @State private var showingProfiles = false
+    @State private var notificationPermissionGranted = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -87,6 +90,29 @@ struct SettingsView: View {
                     Text("Trip Defaults")
                 } footer: {
                     Text("Pre-selected when you start planning a new trip.")
+                }
+
+                // MARK: Notifications section
+                Section {
+                    Toggle(isOn: $notificationsEnabled) {
+                        Label("Plan Reminders", systemImage: "bell.fill")
+                    }
+                    if !notificationPermissionGranted {
+                        Button("Enable in Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    }
+                } header: {
+                    Text("Notifications")
+                } footer: {
+                    Text("Get reminders the evening before and morning of each plan.")
+                }
+                .task {
+                    notificationPermissionGranted = await NotificationService.shared.isPermissionGranted()
                 }
 
                 // MARK: Appearance section

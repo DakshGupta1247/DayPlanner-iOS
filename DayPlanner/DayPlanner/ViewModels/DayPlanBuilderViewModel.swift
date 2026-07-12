@@ -90,6 +90,12 @@ final class DayPlanBuilderViewModel {
     func moveStop(from source: IndexSet, to dest: Int) { stops.move(fromOffsets: source, toOffset: dest) }
     func removeStop(_ stop: Stop) { stops.removeAll { $0.id == stop.id } }
 
+    // Updates how many minutes the user plans to spend at a specific stop.
+    func updateDuration(for stop: Stop, minutes: Int) {
+        guard let i = stops.firstIndex(where: { $0.id == stop.id }) else { return }
+        stops[i].minutesToSpend = max(5, minutes)
+    }
+
     func confirm() {
         // Use the existing ID when editing so TripHistoryService upserts correctly
         let plan = DayPlan(
