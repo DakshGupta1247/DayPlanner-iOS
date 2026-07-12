@@ -3,20 +3,8 @@
 //  DayPlanner
 //
 //  Wraps Apple's CLLocationManager using the modern @Observable pattern.
-//
-//  What is CLLocationManager?
-//  It's Apple's class for accessing the device's GPS. You tell it to start,
-//  and it calls your delegate every time the user moves. We wrap it here
-//  so the rest of the app never has to deal with the old delegate pattern.
-//
-//  Why NSObject?
-//  CLLocationManagerDelegate requires the conforming type to be an NSObject
-//  subclass. @Observable works fine on NSObject subclasses.
-//
-//  Why nonisolated on delegate methods?
-//  CLLocationManagerDelegate isn't declared with @MainActor, so Swift
-//  requires delegate methods to be nonisolated. We hop back to @MainActor
-//  inside a Task to safely update published properties.
+//  Each raw GPS fix is validated by LocationIntegrityGate before being emitted
+//  on trustedLocationStream — the stream callers should prefer over currentLocation.
 //
 
 import CoreLocation
@@ -32,46 +20,50 @@ final class LocationService: NSObject {
     // Tracks the app's current location permission state
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
+    // Latest trust verdict — drives the GPS trust chip in LiveNavigationView
+    var latestTrust: LocationTrust? = nil
+
+    // Stream of validated (trusted + degraded) locations for navigation consumers
+    private(set) var trustedLocationStream: AsyncStream<CLLocation>
+    private var trustedLocationContinuation: AsyncStream<CLLocation>.Continuation?
+
+    private let gate = LocationIntegrityGate()
+    private var previousLocation: CLLocation? = nil
+
     // The underlying iOS location manager — this is what actually reads the GPS
     private let manager = CLLocationManager()
 
     override init() {
+        var continuation: AsyncStream<CLLocation>.Continuation?
+        trustedLocationStream = AsyncStream { continuation = $0 }
+        trustedLocationContinuation = continuation
         super.init()
         manager.delegate = self
-        // BestForNavigation = highest accuracy, uses GPS chip directly
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        // Only fire an update if the user has moved >= 10 metres — saves battery
         manager.distanceFilter = 10
-        // Read the current permission status (may already be granted from a previous session)
         authorizationStatus = manager.authorizationStatus
     }
 
     // MARK: - Convenience helpers
 
-    /// True if the user has granted location access (when-in-use or always)
     var isAuthorized: Bool {
         authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
     }
 
-    /// True if the user has explicitly denied location access
     var isDenied: Bool {
         authorizationStatus == .denied || authorizationStatus == .restricted
     }
 
     // MARK: - Public API
 
-    /// Shows the system "Allow Location Access" permission dialog.
-    /// Only shown once — if the user denies, they must go to Settings to re-enable.
     func requestPermission() {
         manager.requestWhenInUseAuthorization()
     }
 
-    /// Starts streaming GPS updates. Call after permission is granted.
     func startTracking() {
         manager.startUpdatingLocation()
     }
 
-    /// Stops GPS updates. Call when the navigation screen disappears.
     func stopTracking() {
         manager.stopUpdatingLocation()
     }
@@ -81,31 +73,40 @@ final class LocationService: NSObject {
 
 extension LocationService: CLLocationManagerDelegate {
 
-    // Fires every time the device's position changes by >= distanceFilter metres
     nonisolated func locationManager(_ manager: CLLocationManager,
                                      didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        // Hop to @MainActor to safely update the @Observable property
         Task { @MainActor [weak self] in
-            self?.currentLocation = location
+            guard let self else { return }
+            // Always update raw currentLocation for legacy callers
+            self.currentLocation = location
+
+            // Validate through the integrity gate
+            let prev = self.previousLocation
+            let trust = await self.gate.validate(location, previous: prev)
+            self.latestTrust = trust
+            self.previousLocation = location
+
+            // Emit trusted and degraded fixes; drop untrusted ones
+            switch trust {
+            case .trusted(let loc), .degraded(let loc, _):
+                self.trustedLocationContinuation?.yield(loc)
+            case .untrusted:
+                break
+            }
         }
     }
 
-    // Fires when the user changes their location permission
-    // (e.g. taps "Allow" in the system dialog, or revokes in Settings)
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         Task { @MainActor [weak self] in
             self?.authorizationStatus = status
-            // Auto-start tracking as soon as permission is granted
             if status == .authorizedWhenInUse || status == .authorizedAlways {
                 self?.manager.startUpdatingLocation()
             }
         }
     }
 
-    // Fires if GPS fails (e.g., airplane mode, basement)
-    // We ignore silently — the UI handles a nil currentLocation gracefully
     nonisolated func locationManager(_ manager: CLLocationManager,
                                      didFailWithError error: Error) { }
 }

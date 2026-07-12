@@ -30,9 +30,15 @@ Services/
   PlaceSearchService.swift      — MKLocalSearch with debounce
   NavigationService.swift       — Apple Maps URL launcher + MKDirections steps
   TripHistoryService.swift      — JSON read/write to Documents folder (per-profile)
-  LocationService.swift         — CLLocationManager wrapper (@Observable)
+  LocationService.swift         — CLLocationManager wrapper; trustedLocationStream (validated fixes)
+  LocationIntegrityGate.swift   — actor; validates GPS fixes (accuracy, staleness, teleport)
+  ETAEngine.swift               — EMA speed smoother, ETAResult, ClosingTimeVerdict
+  StopsLoader.swift             — Decodes Resources/stops.json into [Stop] with openUntil dates
   ProfileService.swift          — Profile CRUD, active profile, per-profile isolation
   NotificationService.swift     — UNUserNotificationCenter, evening + morning reminders
+
+Resources/
+  stops.json                    — 6 bundled Delhi landmarks with openUntil "HH:mm" fields
 
 ViewModels/
   HomeViewModel.swift           — Plans list, FAB state, edit/delete, notification scheduling
@@ -41,7 +47,7 @@ ViewModels/
   RouteOptimizerViewModel.swift — RouteState, GPS integration, edit mode, re-optimise
   ItineraryViewModel.swift      — Cascading arrival times, start time, minute overrides
   NavigationViewModel.swift     — Stop progression, step fetching from MKDirections
-  LiveNavigationViewModel.swift — Real-time GPS, ETA, auto-arrival at 50m
+  LiveNavigationViewModel.swift — Real-time GPS, ETAEngine, auto-arrival at 25m, monotonic crossing
   TripHistoryViewModel.swift    — Grouped history list, delete
   (Settings has no ViewModel — uses @AppStorage directly)
 
@@ -129,14 +135,29 @@ User taps "View Route"
 ```
 CLLocationManager (hardware GPS, fires every 10m)
   → LocationService.currentLocation updates (@Observable)
-    → LiveNavigationViewModel (withObservationTracking loop)
-      → handleLocationUpdate(location)
-          ├── MapCamera: tilted 3D, follows heading, 800m altitude
-          ├── Check distance to currentStop < 50m → showingArrivalBanner = true
-          └── if moved 50m+ from lastRouteCalcLocation:
-              → MKDirections from current GPS → next stop
-              → livePolyline + etaSeconds updated
-                → LiveNavigationView re-renders map + ETA card
+  → LocationIntegrityGate.validate() — checks accuracy, staleness, teleport speed
+      ├── .trusted / .degraded → emitted on trustedLocationStream
+      └── .untrusted → dropped silently
+  → LocationService.latestTrust (@Observable) → LocationTrustChip in UI (🟢/🟡/🔴)
+
+trustedLocationStream (AsyncStream<CLLocation>) consumed by breadcrumb loop:
+  → ETAEngine.update(newLocation:) — EMA speed smoothing (α=0.3)
+  → ETAEngine.eta(to:from:) — returns ETAResult (durationSeconds, arrivalTime, distanceMeters)
+  → ClosingTimeVerdict — compared against stop.openUntil (makeIt / cuttingClose / wontMakeIt)
+
+withObservationTracking loop (currentLocation):
+  → handleLocationUpdate(location)
+      ├── MapCamera: tilted 3D, follows heading, 800m altitude
+      ├── Check distance to currentStop < 25m
+      │   AND stop.id not in crossedStopIDs (monotonic guard)
+      │   → crossedStopIDs.insert(stop.id) + showingArrivalBanner = true
+      └── if moved 50m+ from lastRouteCalcLocation:
+          → MKDirections from current GPS → next stop
+          → livePolyline + etaSeconds updated
+            → LiveNavigationView re-renders map + ETA card
+
+1s Timer:
+  → refreshSpeedETA(from: currentLocation) → updates etaResult for arrival time display
 ```
 
 ## Data Flow: Re-optimise After Stop Reached

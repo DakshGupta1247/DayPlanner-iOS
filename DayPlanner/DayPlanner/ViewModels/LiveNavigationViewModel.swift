@@ -5,13 +5,14 @@
 //  ViewModel for FR9 — Live Trip Navigation.
 //  Orchestrates GPS tracking, route updates, ETA, and auto-arrival detection.
 //
-//  Key concepts:
-//  - Owns a LocationService that streams real-time GPS updates
-//  - Every time location changes → checks if user reached the current stop
-//    (within 50 metres = "arrived") and recalculates ETA from current position
-//  - Route recalculation is debounced: only runs if the user has moved
-//    more than 50m from the last calculated position, or after 30 seconds
-//  - All state is @MainActor so SwiftUI updates always happen on the main thread
+//  FR2 changes:
+//  - Breadcrumb tracking uses trustedLocationStream (validated fixes only)
+//  - Arrival check uses 25m radius (was 50m)
+//  - crossedStopIDs ensures monotonic stop crossing (each stop crossed at most once)
+//
+//  FR3 changes:
+//  - ETAEngine computes EMA-based speed ETA updated every 1s via Timer
+//  - etaResult exposed for closing-time verdict display in the view
 //
 
 import MapKit
@@ -37,25 +38,30 @@ final class LiveNavigationViewModel {
     // MARK: - Stop progression
     private(set) var currentStopIndex: Int = 0
 
-    // Set to true once user is within 50m of the current stop
+    // Monotonic guard — a stop can only be crossed once
+    private var crossedStopIDs: Set<UUID> = []
+
     var autoArrivedAtStop = false
 
     // MARK: - ETA
-    var etaSeconds: Double? = nil          // live ETA to next stop in seconds
+    var etaResult: ETAResult? = nil             // from ETAEngine (speed-based)
+    var etaSeconds: Double? = nil               // from MKDirections (road-based)
     var etaIsLoading = false
+    private let etaEngine = ETAEngine()
+    private var etaTimer: Timer? = nil
 
     // MARK: - Camera
     var cameraPosition: MapCameraPosition = .automatic
 
-    // MARK: - Auto-arrival banner
+    // MARK: - Arrival banner
     var showingArrivalBanner = false
 
-    // MARK: - Off-route recalculation
-    // Position where we last calculated the route — used to detect when to recalculate
+    // MARK: - Off-route recalculation debounce
     private var lastRouteCalcLocation: CLLocation? = nil
 
-    // Background task handle for the location observation loop
+    // Background task handles
     private var trackingTask: Task<Void, Never>? = nil
+    private var breadcrumbTask: Task<Void, Never>? = nil
 
     private let navigationService = NavigationService()
 
@@ -81,20 +87,30 @@ final class LiveNavigationViewModel {
     var completedStops: [Stop] { Array(stops.prefix(currentStopIndex)) }
     var remainingStops: [Stop] { Array(stops.dropFirst(currentStopIndex)) }
 
-    /// Formatted ETA string, e.g. "12 min" or "1h 5m"
+    /// Formatted ETA from MKDirections (road-based), falls back to ETAEngine result
     var formattedETA: String {
-        guard let eta = etaSeconds else { return "Calculating..." }
-        let total = Int(eta)
+        if let road = etaSeconds {
+            let total = Int(road)
+            let hours = total / 3600
+            let mins  = (total % 3600) / 60
+            if hours > 0 { return "\(hours)h \(mins)m" }
+            return "\(mins) min"
+        }
+        guard let result = etaResult else { return "—" }
+        let total = Int(result.durationSeconds)
         let hours = total / 3600
         let mins  = (total % 3600) / 60
         if hours > 0 { return "\(hours)h \(mins)m" }
-        return "\(mins) min"
+        return "~\(mins) min"
+    }
+
+    var formattedArrivalTime: String {
+        guard let result = etaResult else { return "" }
+        return result.arrivalTime.formatted(date: .omitted, time: .shortened)
     }
 
     // MARK: - Start / Stop tracking
 
-    /// Call this when LiveNavigationView appears.
-    /// Requests permission if needed, then starts the GPS observation loop.
     func startLiveTracking() {
         if locationService.isAuthorized {
             locationService.startTracking()
@@ -102,39 +118,34 @@ final class LiveNavigationViewModel {
             locationService.requestPermission()
         }
         beginObservingLocation()
+        beginBreadcrumbTracking()
+        startETATimer()
     }
 
-    /// Call this when the view disappears — stops GPS to save battery.
     func stopLiveTracking() {
         locationService.stopTracking()
         trackingTask?.cancel()
         trackingTask = nil
+        breadcrumbTask?.cancel()
+        breadcrumbTask = nil
+        etaTimer?.invalidate()
+        etaTimer = nil
     }
 
-    // MARK: - Location observation loop
+    // MARK: - Location observation loop (camera + arrival + route recalc)
 
-    /// Runs a lightweight loop that fires whenever locationService.currentLocation changes.
-    /// Uses withObservationTracking — the modern @Observable equivalent of Combine's sink.
     private func beginObservingLocation() {
         trackingTask?.cancel()
         trackingTask = Task { [weak self] in
-            // Keep observing until the task is cancelled
             while !Task.isCancelled {
                 guard let self else { return }
-
                 await withCheckedContinuation { continuation in
-                    // withObservationTracking: runs `apply` once immediately,
-                    // then calls `onChange` exactly once when any @Observable
-                    // property read inside `apply` changes.
                     withObservationTracking {
-                        // Reading currentLocation here "subscribes" to it
                         _ = self.locationService.currentLocation
                     } onChange: {
                         continuation.resume()
                     }
                 }
-
-                // Location changed — process the new position
                 if let location = self.locationService.currentLocation {
                     await self.handleLocationUpdate(location)
                 }
@@ -142,34 +153,73 @@ final class LiveNavigationViewModel {
         }
     }
 
-    // MARK: - Handle each GPS update
+    // MARK: - Breadcrumb loop — consumes trustedLocationStream
+
+    private func beginBreadcrumbTracking() {
+        breadcrumbTask?.cancel()
+        breadcrumbTask = Task { [weak self] in
+            guard let self else { return }
+            for await location in self.locationService.trustedLocationStream {
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    self.etaEngine.update(newLocation: location)
+                    // Refresh speed-based ETA immediately on each trusted fix
+                    self.refreshSpeedETA(from: location)
+                }
+            }
+        }
+    }
+
+    // MARK: - ETA Timer (1s refresh for arrival time display)
+
+    private func startETATimer() {
+        etaTimer?.invalidate()
+        etaTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let loc = self.locationService.currentLocation {
+                    self.refreshSpeedETA(from: loc)
+                }
+            }
+        }
+    }
+
+    private func refreshSpeedETA(from location: CLLocation) {
+        guard let stop = currentStop else { return }
+        etaResult = etaEngine.eta(to: stop.coordinate, from: location.coordinate)
+    }
+
+    // MARK: - Handle each GPS update (camera + arrival + route recalc)
 
     private func handleLocationUpdate(_ location: CLLocation) async {
-        // 1. Update the map camera to follow the user
+        // 1. Update camera
         cameraPosition = .camera(MapCamera(
             centerCoordinate: location.coordinate,
-            distance: 800,       // metres above ground
+            distance: 800,
             heading: location.course > 0 ? location.course : 0,
-            pitch: 45            // tilted 3D view like Apple Maps navigation
+            pitch: 45
         ))
 
-        // 2. Check if user has arrived at the current stop (within 50 metres)
+        // 2. Arrival check — 25m radius, monotonic guard
         if let stop = currentStop {
             let stopLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
             let distanceToStop = location.distance(from: stopLocation)
 
-            if distanceToStop < 50 && !showingArrivalBanner {
-                showingArrivalBanner = true  // show "You've arrived!" banner
+            if distanceToStop < 25,
+               !showingArrivalBanner,
+               !crossedStopIDs.contains(stop.id) {
+                crossedStopIDs.insert(stop.id)
+                showingArrivalBanner = true
             }
         }
 
-        // 3. Recalculate route only if we've moved 50m+ from the last calculation
-        // This prevents hammering MKDirections with every single GPS update
+        // 3. Route recalculation (debounced at 50m)
         let shouldRecalculate: Bool
         if let lastCalc = lastRouteCalcLocation {
             shouldRecalculate = location.distance(from: lastCalc) > 50
         } else {
-            shouldRecalculate = true  // first calculation
+            shouldRecalculate = true
         }
 
         if shouldRecalculate {
@@ -178,10 +228,8 @@ final class LiveNavigationViewModel {
         }
     }
 
-    // MARK: - Live route calculation
+    // MARK: - Live route calculation (MKDirections)
 
-    /// Calls MKDirections from the user's CURRENT GPS position to the next stop.
-    /// Updates the polyline drawn on the map and the ETA.
     private func recalculateRouteFromCurrentLocation(_ location: CLLocation) async {
         guard let stop = currentStop else { return }
 
@@ -189,7 +237,7 @@ final class LiveNavigationViewModel {
 
         let fromItem = MKMapItem(location: location, address: nil)
         let toLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
-        let toItem   = MKMapItem(location: toLocation, address: nil)
+        let toItem = MKMapItem(location: toLocation, address: nil)
 
         let request = MKDirections.Request()
         request.source = fromItem
@@ -200,11 +248,11 @@ final class LiveNavigationViewModel {
         do {
             let response = try await MKDirections(request: request).calculate()
             if let best = response.routes.first {
-                livePolyline = best.polyline           // update the route line on the map
-                etaSeconds   = best.expectedTravelTime // update the ETA
+                livePolyline = best.polyline
+                etaSeconds   = best.expectedTravelTime
             }
         } catch {
-            // Silently ignore — keep showing the last known ETA
+            // Keep last known ETA silently
         }
 
         etaIsLoading = false
@@ -212,19 +260,26 @@ final class LiveNavigationViewModel {
 
     // MARK: - Intents
 
-    /// Called when user taps "Arrived" manually, or when auto-arrived.
     func markCurrentStopArrived() {
         guard currentStopIndex < stops.count else { return }
         currentStopIndex += 1
         showingArrivalBanner = false
         livePolyline = nil
         etaSeconds = nil
-        lastRouteCalcLocation = nil  // force recalculation for next stop
+        etaResult = nil
+        lastRouteCalcLocation = nil
+        etaEngine.reset()
     }
 
-    /// Opens Apple Maps for the current stop.
     func navigateInMaps() {
         guard let stop = currentStop else { return }
         navigationService.openInAppleMaps(to: stop, mode: trip.travelMode)
+    }
+
+    // MARK: - Closing time verdict for current stop
+
+    var closingTimeVerdict: ClosingTimeVerdict {
+        guard let stop = currentStop, let result = etaResult else { return .noClosingTime }
+        return etaEngine.verdict(eta: result, stop: stop)
     }
 }

@@ -1,0 +1,8 @@
+[
+  {"id":"1","name":"Connaught Place","coordinate":{"lat":28.6315,"lng":77.2167},"openUntil":"21:00"},
+  {"id":"2","name":"India Gate","coordinate":{"lat":28.6129,"lng":77.2295},"openUntil":"22:00"},
+  {"id":"3","name":"Humayun's Tomb","coordinate":{"lat":28.5933,"lng":77.2507},"openUntil":"18:00"},
+  {"id":"4","name":"Qutub Minar","coordinate":{"lat":28.5244,"lng":77.1855},"openUntil":"17:00"},
+  {"id":"5","name":"Lotus Temple","coordinate":{"lat":28.5535,"lng":77.2588},"openUntil":"17:30"},
+  {"id":"6","name":"Red Fort","coordinate":{"lat":28.6562,"lng":77.2410},"openUntil":"17:30"}
+]
