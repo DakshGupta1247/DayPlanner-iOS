@@ -7,7 +7,7 @@
 //  - "Today's Focus" highlighted card (if a plan is active today)
 //  - "All Plans" scrollable list of Day Cards and Trip Cards
 //  - FAB (Floating Action Button) with animated two-option menu
-//  - Swipe-to-delete on cards
+//  - Swipe actions: Edit (blue) and Delete (red) with confirmation alert
 //
 
 import SwiftUI
@@ -71,7 +71,6 @@ struct HomeView: View {
                 .navigationBarTitleDisplayMode(.large)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        // Profile avatar button — shows initials of the active profile
                         Button { showingProfiles = true } label: {
                             ProfileAvatarButton(profile: profileService.activeProfile)
                         }
@@ -79,7 +78,7 @@ struct HomeView: View {
                     ToolbarItem(placement: .topBarTrailing) {
                         HStack(spacing: 4) {
                             Button { showingHistory = true } label: {
-                                Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                Image(systemName: "clock.arrow.circlepath")
                             }
                             Button { showingSettings = true } label: {
                                 Image(systemName: "gearshape")
@@ -88,7 +87,6 @@ struct HomeView: View {
                     }
                 }
                 .onAppear { viewModel.reload() }
-                // Reload plans whenever the active profile changes
                 .onChange(of: profileService.activeProfile?.id) { viewModel.reload() }
 
                 // — FAB overlay —
@@ -101,15 +99,49 @@ struct HomeView: View {
             ProfileSwitcherView()
                 .onDisappear { viewModel.reload() }
         }
-        .sheet(isPresented: $showingHistory) {
-            NavigationStack { TripHistoryView() }
-        }
+        .sheet(isPresented: $showingHistory)  { TripHistoryView() }
         .sheet(isPresented: $showingSettings) { SettingsView() }
+        // Create sheets
         .sheet(isPresented: $viewModel.showingDayPlanBuilder) {
             DayPlanBuilderView { plan in viewModel.saveDayPlan(plan) }
         }
         .sheet(isPresented: $viewModel.showingTripBuilder) {
             TripBuilderView { trip in viewModel.saveTrip(trip) }
+        }
+        // Edit sheets — driven by which item is set
+        .sheet(item: $viewModel.editingDayPlan) { plan in
+            DayPlanBuilderView(editing: plan) { updated in
+                viewModel.saveDayPlan(updated)
+            }
+        }
+        .sheet(item: $viewModel.editingTrip) { trip in
+            TripBuilderView(editing: trip) { updated in
+                viewModel.saveTrip(updated)
+            }
+        }
+        // Delete confirmation alert
+        .alert("Delete Plan?", isPresented: Binding(
+            get: { viewModel.itemPendingDelete != nil },
+            set: { if !$0 { viewModel.itemPendingDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let item = viewModel.itemPendingDelete {
+                    viewModel.delete(item)
+                }
+                viewModel.itemPendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.itemPendingDelete = nil
+            }
+        } message: {
+            if let item = viewModel.itemPendingDelete {
+                switch item {
+                case .singleDay(let plan):
+                    Text("\"\(plan.name)\" will be permanently removed.")
+                case .multiDayTrip(let trip):
+                    Text("\"\(trip.name)\" and all \(trip.days.count) day\(trip.days.count == 1 ? "" : "s") will be permanently removed.")
+                }
+            }
         }
     }
 }
@@ -164,26 +196,48 @@ private struct PlanCard: View {
         case .singleDay(let plan):
             DayPlanCard(plan: plan, isHighlighted: isHighlighted)
                 .contextMenu {
-                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                    Button { viewModel.startEditing(item) } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) { viewModel.itemPendingDelete = item } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        viewModel.itemPendingDelete = item
+                    } label: {
                         Label("Delete", systemImage: "trash")
                     }
+                    Button {
+                        viewModel.startEditing(item)
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .tint(.blue)
                 }
         case .multiDayTrip(let trip):
             TripCard(trip: trip, isHighlighted: isHighlighted)
                 .contextMenu {
-                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                    Button { viewModel.startEditing(item) } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) { viewModel.itemPendingDelete = item } label: {
                         Label("Delete", systemImage: "trash")
                     }
                 }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) { viewModel.delete(item) } label: {
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        viewModel.itemPendingDelete = item
+                    } label: {
                         Label("Delete", systemImage: "trash")
                     }
+                    Button {
+                        viewModel.startEditing(item)
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .tint(.blue)
                 }
         }
     }

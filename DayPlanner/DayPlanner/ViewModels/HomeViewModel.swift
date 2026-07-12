@@ -19,9 +19,16 @@ final class HomeViewModel {
     // FAB menu open/close
     var isFABMenuOpen = false
 
-    // Which builder sheet to show
+    // Create-mode builder sheets
     var showingDayPlanBuilder = false
     var showingTripBuilder    = false
+
+    // Edit-mode: which plan is being edited (nil = not editing)
+    var editingDayPlan: DayPlan? = nil
+    var editingTrip: Trip? = nil
+
+    // Delete confirmation
+    var itemPendingDelete: PlanItem? = nil
 
     init() {
         items = TripHistoryService.shared.loadAll()
@@ -81,6 +88,16 @@ final class HomeViewModel {
     func toggleFAB() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             isFABMenuOpen.toggle()
+        }
+    }
+
+    // MARK: - Edit helpers
+
+    func startEditing(_ item: PlanItem) {
+        isFABMenuOpen = false
+        switch item {
+        case .singleDay(let plan): editingDayPlan = plan
+        case .multiDayTrip(let trip): editingTrip = trip
         }
     }
 }
