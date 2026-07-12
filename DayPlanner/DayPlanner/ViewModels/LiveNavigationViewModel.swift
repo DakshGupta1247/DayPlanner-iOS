@@ -5,20 +5,37 @@
 //  ViewModel for FR9 — Live Trip Navigation.
 //  Orchestrates GPS tracking, route updates, ETA, and auto-arrival detection.
 //
-//  FR2 changes:
-//  - Breadcrumb tracking uses trustedLocationStream (validated fixes only)
-//  - Arrival check uses 25m radius (was 50m)
-//  - crossedStopIDs ensures monotonic stop crossing (each stop crossed at most once)
-//
-//  FR3 changes:
-//  - ETAEngine computes EMA-based speed ETA updated every 1s via Timer
-//  - etaResult exposed for closing-time verdict display in the view
+//  Day Complete flow:
+//  - checkIfDayComplete() is called after every stop arrival
+//  - When all stops are marked arrived, a 0.8s delay fires then isDayComplete = true
+//  - daySummary is computed at that moment and passed to DayCompleteView
+//  - The plan is saved back to TripHistoryService so history shows the completion
 //
 
 import MapKit
 import Observation
 import CoreLocation
 import SwiftUI
+
+// MARK: - DaySummary
+
+struct DaySummary {
+    let totalStops: Int
+    let completedStops: Int
+    let startTime: Date
+    let endTime: Date
+
+    var timeTaken: String {
+        let minutes = Int(endTime.timeIntervalSince(startTime) / 60)
+        guard minutes > 0 else { return "< 1 min" }
+        if minutes >= 60 {
+            let h = minutes / 60
+            let m = minutes % 60
+            return m > 0 ? "\(h)h \(m)min" : "\(h)h"
+        }
+        return "\(minutes) min"
+    }
+}
 
 @Observable
 @MainActor
@@ -32,20 +49,16 @@ final class LiveNavigationViewModel {
     // MARK: - Location
     let locationService = LocationService()
 
-    // The live route polyline from user's current position to next stop
     var livePolyline: MKPolyline? = nil
 
     // MARK: - Stop progression
     private(set) var currentStopIndex: Int = 0
-
-    // Monotonic guard — a stop can only be crossed once
     private var crossedStopIDs: Set<UUID> = []
-
     var autoArrivedAtStop = false
 
     // MARK: - ETA
-    var etaResult: ETAResult? = nil             // from ETAEngine (speed-based)
-    var etaSeconds: Double? = nil               // from MKDirections (road-based)
+    var etaResult: ETAResult? = nil
+    var etaSeconds: Double? = nil
     var etaIsLoading = false
     private let etaEngine = ETAEngine()
     private var etaTimer: Timer? = nil
@@ -56,10 +69,14 @@ final class LiveNavigationViewModel {
     // MARK: - Arrival banner
     var showingArrivalBanner = false
 
+    // MARK: - Day Complete
+    var isDayComplete = false
+    var daySummary: DaySummary? = nil
+    private let dayStartTime: Date = .now
+
     // MARK: - Off-route recalculation debounce
     private var lastRouteCalcLocation: CLLocation? = nil
 
-    // Background task handles
     private var trackingTask: Task<Void, Never>? = nil
     private var breadcrumbTask: Task<Void, Never>? = nil
 
@@ -87,7 +104,6 @@ final class LiveNavigationViewModel {
     var completedStops: [Stop] { Array(stops.prefix(currentStopIndex)) }
     var remainingStops: [Stop] { Array(stops.dropFirst(currentStopIndex)) }
 
-    /// Formatted ETA from MKDirections (road-based), falls back to ETAEngine result
     var formattedETA: String {
         if let road = etaSeconds {
             let total = Int(road)
@@ -109,6 +125,11 @@ final class LiveNavigationViewModel {
         return result.arrivalTime.formatted(date: .omitted, time: .shortened)
     }
 
+    var closingTimeVerdict: ClosingTimeVerdict {
+        guard let stop = currentStop, let result = etaResult else { return .noClosingTime }
+        return etaEngine.verdict(eta: result, stop: stop)
+    }
+
     // MARK: - Start / Stop tracking
 
     func startLiveTracking() {
@@ -124,15 +145,12 @@ final class LiveNavigationViewModel {
 
     func stopLiveTracking() {
         locationService.stopTracking()
-        trackingTask?.cancel()
-        trackingTask = nil
-        breadcrumbTask?.cancel()
-        breadcrumbTask = nil
-        etaTimer?.invalidate()
-        etaTimer = nil
+        trackingTask?.cancel(); trackingTask = nil
+        breadcrumbTask?.cancel(); breadcrumbTask = nil
+        etaTimer?.invalidate(); etaTimer = nil
     }
 
-    // MARK: - Location observation loop (camera + arrival + route recalc)
+    // MARK: - Location observation loop
 
     private func beginObservingLocation() {
         trackingTask?.cancel()
@@ -153,7 +171,7 @@ final class LiveNavigationViewModel {
         }
     }
 
-    // MARK: - Breadcrumb loop — consumes trustedLocationStream
+    // MARK: - Breadcrumb loop
 
     private func beginBreadcrumbTracking() {
         breadcrumbTask?.cancel()
@@ -163,14 +181,11 @@ final class LiveNavigationViewModel {
                 guard !Task.isCancelled else { break }
                 await MainActor.run {
                     self.etaEngine.update(newLocation: location)
-                    // Refresh speed-based ETA immediately on each trusted fix
                     self.refreshSpeedETA(from: location)
                 }
             }
         }
     }
-
-    // MARK: - ETA Timer (1s refresh for arrival time display)
 
     private func startETATimer() {
         etaTimer?.invalidate()
@@ -190,10 +205,9 @@ final class LiveNavigationViewModel {
         etaResult = etaEngine.eta(to: stop.coordinate, from: location.coordinate)
     }
 
-    // MARK: - Handle each GPS update (camera + arrival + route recalc)
+    // MARK: - Handle each GPS update
 
     private func handleLocationUpdate(_ location: CLLocation) async {
-        // 1. Update camera
         cameraPosition = .camera(MapCamera(
             centerCoordinate: location.coordinate,
             distance: 800,
@@ -201,7 +215,6 @@ final class LiveNavigationViewModel {
             pitch: 45
         ))
 
-        // 2. Arrival check — 25m radius, monotonic guard
         if let stop = currentStop {
             let stopLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
             let distanceToStop = location.distance(from: stopLocation)
@@ -214,7 +227,6 @@ final class LiveNavigationViewModel {
             }
         }
 
-        // 3. Route recalculation (debounced at 50m)
         let shouldRecalculate: Bool
         if let lastCalc = lastRouteCalcLocation {
             shouldRecalculate = location.distance(from: lastCalc) > 50
@@ -228,33 +240,26 @@ final class LiveNavigationViewModel {
         }
     }
 
-    // MARK: - Live route calculation (MKDirections)
+    // MARK: - Live route calculation
 
     private func recalculateRouteFromCurrentLocation(_ location: CLLocation) async {
         guard let stop = currentStop else { return }
-
         etaIsLoading = true
-
         let fromItem = MKMapItem(location: location, address: nil)
         let toLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
         let toItem = MKMapItem(location: toLocation, address: nil)
-
         let request = MKDirections.Request()
         request.source = fromItem
         request.destination = toItem
         request.transportType = trip.travelMode.mkTransportType
         request.requestsAlternateRoutes = false
-
         do {
             let response = try await MKDirections(request: request).calculate()
             if let best = response.routes.first {
                 livePolyline = best.polyline
                 etaSeconds   = best.expectedTravelTime
             }
-        } catch {
-            // Keep last known ETA silently
-        }
-
+        } catch { }
         etaIsLoading = false
     }
 
@@ -269,6 +274,7 @@ final class LiveNavigationViewModel {
         etaResult = nil
         lastRouteCalcLocation = nil
         etaEngine.reset()
+        checkIfDayComplete()
     }
 
     func navigateInMaps() {
@@ -276,10 +282,39 @@ final class LiveNavigationViewModel {
         navigationService.openInAppleMaps(to: stop, mode: trip.travelMode)
     }
 
-    // MARK: - Closing time verdict for current stop
+    // MARK: - Day Complete detection
 
-    var closingTimeVerdict: ClosingTimeVerdict {
-        guard let stop = currentStop, let result = etaResult else { return .noClosingTime }
-        return etaEngine.verdict(eta: result, stop: stop)
+    private func checkIfDayComplete() {
+        guard currentStopIndex >= stops.count, !stops.isEmpty else { return }
+
+        let summary = DaySummary(
+            totalStops: stops.count,
+            completedStops: stops.count,
+            startTime: dayStartTime,
+            endTime: .now
+        )
+
+        // 0.8s delay so the arrival animation finishes before the sheet appears
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            self.daySummary = summary
+            self.isDayComplete = true
+            self.saveCompletedPlan()
+        }
+    }
+
+    private func saveCompletedPlan() {
+        // Build a DayPlan with isManuallyCompleted = true so the home screen card
+        // immediately greys out — status no longer depends on the date alone.
+        var dayPlan = trip.days.first ?? DayPlan(
+            id: trip.id,
+            name: trip.name,
+            date: .now,
+            stops: stops,
+            travelMode: trip.travelMode
+        )
+        dayPlan.isManuallyCompleted = true
+        TripHistoryService.shared.save(PlanItem.singleDay(dayPlan))
     }
 }

@@ -255,6 +255,8 @@ private struct DayPlanCard: View {
 
     @State private var showingRoute = false
 
+    private var isCompleted: Bool { plan.status == .completed }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
 
@@ -263,6 +265,7 @@ private struct DayPlanCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(plan.name)
                         .font(.headline)
+                        .foregroundStyle(isCompleted ? .secondary : .primary)
                     Text(plan.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -277,40 +280,60 @@ private struct DayPlanCard: View {
             HStack(spacing: 0) {
                 MiniStat(value: "\(plan.stops.count)",
                          label: plan.stops.count == 1 ? "Stop" : "Stops",
-                         symbol: "mappin.circle.fill", color: .blue)
+                         symbol: "mappin.circle.fill", color: isCompleted ? .secondary : .blue)
                 Divider().frame(height: 32)
                 MiniStat(value: formattedDuration(plan.totalMinutesToSpend),
-                         label: "Planned", symbol: "clock.fill", color: .orange)
+                         label: "Planned", symbol: "clock.fill", color: isCompleted ? .secondary : .orange)
                 Divider().frame(height: 32)
                 MiniStat(value: plan.travelMode.rawValue,
                          label: "Mode",
-                         symbol: plan.travelMode.symbolName, color: .purple)
+                         symbol: plan.travelMode.symbolName, color: isCompleted ? .secondary : .purple)
             }
 
-            // Action buttons (only show if not empty)
-            if !plan.stops.isEmpty {
-                HStack(spacing: 10) {
-                    Button { showingRoute = true } label: {
-                        Label("View Route", systemImage: "map.fill")
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(.blue)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
+            // Action button — hidden when completed
+            if !plan.stops.isEmpty && !isCompleted {
+                Button { showingRoute = true } label: {
+                    Label("View Route", systemImage: "map.fill")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+
+            // Completed footer
+            if isCompleted {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("All stops visited")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Edit to reactivate")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
         .padding(16)
-        .background(isHighlighted ? AnyShapeStyle(.blue.opacity(0.07)) : AnyShapeStyle(.regularMaterial))
+        .background(isCompleted
+            ? AnyShapeStyle(Color(.systemGray6))
+            : isHighlighted
+                ? AnyShapeStyle(.blue.opacity(0.07))
+                : AnyShapeStyle(.regularMaterial))
         .clipShape(RoundedRectangle(cornerRadius: 18))
-        .shadow(color: .black.opacity(isHighlighted ? 0.10 : 0.06), radius: 10, y: 3)
+        .shadow(color: .black.opacity(isCompleted ? 0.03 : isHighlighted ? 0.10 : 0.06), radius: 10, y: 3)
         .overlay(
-            isHighlighted
-                ? RoundedRectangle(cornerRadius: 18).stroke(.blue.opacity(0.3), lineWidth: 1.5)
-                : nil
+            isCompleted
+                ? RoundedRectangle(cornerRadius: 18).stroke(Color(.systemGray4), lineWidth: 1)
+                : isHighlighted
+                    ? RoundedRectangle(cornerRadius: 18).stroke(.blue.opacity(0.3), lineWidth: 1.5)
+                    : nil
         )
+        .opacity(isCompleted ? 0.75 : 1.0)
         .navigationDestination(isPresented: $showingRoute) {
             RouteOptimizerView(dayPlan: plan)
         }

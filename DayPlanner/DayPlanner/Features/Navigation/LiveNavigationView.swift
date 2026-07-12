@@ -41,11 +41,7 @@ struct LiveNavigationView: View {
             .zIndex(5)
 
             // — Overlaid bottom card —
-            if viewModel.tripComplete {
-                TripCompleteOverlay { dismiss() }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 32)
-            } else {
+            if !viewModel.tripComplete {
                 bottomOverlay
             }
 
@@ -63,9 +59,19 @@ struct LiveNavigationView: View {
         }
         .navigationTitle("Live Navigation")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(viewModel.tripComplete)
         .onAppear  { viewModel.startLiveTracking() }
         .onDisappear { viewModel.stopLiveTracking() }
+        .fullScreenCover(isPresented: $viewModel.isDayComplete) {
+            if let summary = viewModel.daySummary {
+                DayCompleteView(
+                    summary: summary,
+                    completedStops: viewModel.completedStops
+                ) {
+                    viewModel.isDayComplete = false
+                    dismiss()
+                }
+            }
+        }
     }
 
     // MARK: - Live Map
@@ -409,41 +415,6 @@ private struct ArrivalBanner: View {
     }
 }
 
-// MARK: - Trip Complete Overlay
-
-private struct TripCompleteOverlay: View {
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.green)
-
-            VStack(spacing: 6) {
-                Text("Trip Complete!")
-                    .font(.title2.bold())
-                Text("You've visited all your stops.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Button(action: onDismiss) {
-                Text("Back to Home")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(.blue)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-            }
-        }
-        .padding(24)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .shadow(color: .black.opacity(0.12), radius: 20, y: -4)
-    }
-}
 
 #Preview {
     NavigationStack {

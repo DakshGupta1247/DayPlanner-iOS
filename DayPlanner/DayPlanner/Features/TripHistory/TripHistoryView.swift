@@ -110,10 +110,24 @@ private struct HistoryRow: View {
 
             Spacer()
 
-            // Status dot
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
+            // Status badge
+            if item.status == .completed {
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                    Text("Done")
+                        .font(.caption2.bold())
+                }
+                .foregroundStyle(.green)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(.green.opacity(0.12))
+                .clipShape(Capsule())
+            } else {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+            }
         }
         .padding(.vertical, 4)
     }

@@ -65,9 +65,12 @@ final class HomeViewModel {
     // MARK: - Intents
 
     func saveDayPlan(_ plan: DayPlan) {
-        let item = PlanItem.singleDay(plan)
+        // Editing a plan reactivates it — clear the manual completion flag
+        // so the card is no longer greyed out after new stops are added.
+        var updated = plan
+        updated.isManuallyCompleted = false
+        let item = PlanItem.singleDay(updated)
         TripHistoryService.shared.save(item)
-        // Schedule (or update) a reminder notification for this plan.
         Task { await NotificationService.shared.scheduleReminder(for: item) }
         reload()
     }

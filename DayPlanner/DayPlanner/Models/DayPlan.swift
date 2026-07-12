@@ -46,6 +46,10 @@ struct DayPlan: Identifiable, Codable, Hashable {
     var startTime: Date       // when the user plans to begin the day
     var stops: [Stop]
     var travelMode: TravelMode
+    // Set to true when all stops are marked arrived in LiveNavigation.
+    // Overrides the date-derived status so the card greys out on the home screen.
+    // Reset to false whenever the plan is re-saved through the builder (edit adds new stops).
+    var isManuallyCompleted: Bool = false
 
     // MARK: - Computed
 
@@ -53,8 +57,9 @@ struct DayPlan: Identifiable, Codable, Hashable {
         stops.reduce(0) { $0 + $1.minutesToSpend }
     }
 
-    /// Auto-derived status from the plan's date — no stored value
+    /// Status: manual completion takes priority, then date-derived
     var status: PlanStatus {
+        if isManuallyCompleted { return .completed }
         if Calendar.current.isDateInToday(date) { return .active }
         return date > .now ? .upcoming : .completed
     }
