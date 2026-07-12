@@ -24,14 +24,11 @@ import SwiftUI
 
 struct SettingsView: View {
 
-    // These keys must match exactly what HomeView and ContentView read.
-    @AppStorage("userName")           private var userName = "there"
     @AppStorage("defaultTravelMode")  private var defaultTravelMode = TravelMode.driving.rawValue
     @AppStorage("appearanceMode")     private var appearanceMode = "system"
 
-    // Local state for the name text field
-    @State private var nameInput = ""
-    @FocusState private var nameFocused: Bool
+    @State private var profileService = ProfileService.shared
+    @State private var showingProfiles = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -41,41 +38,38 @@ struct SettingsView: View {
 
                 // MARK: Profile section
                 Section {
-                    HStack {
-                        // Big avatar circle with initials
-                        ZStack {
-                            Circle()
-                                .fill(.blue.opacity(0.15))
-                                .frame(width: 56, height: 56)
-                            Text(initials)
-                                .font(.title2.bold())
-                                .foregroundStyle(.blue)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(userName == "there" ? "Set your name" : userName)
-                                .font(.headline)
-                            Text("Used in your daily greeting")
+                    Button { showingProfiles = true } label: {
+                        HStack(spacing: 14) {
+                            // Avatar
+                            let color = Color.hex( profileService.activeProfile?.accentColor.hexValue ?? "#3B82F6")
+                            ZStack {
+                                Circle()
+                                    .fill(color.opacity(0.2))
+                                    .frame(width: 48, height: 48)
+                                Text(profileService.activeProfile?.initials ?? "?")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(color)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(profileService.activeProfile?.name ?? "Me")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text("\(profileService.profiles.count) profile\(profileService.profiles.count == 1 ? "" : "s") · Tap to manage")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                    }
-                    .padding(.vertical, 4)
-
-                    // Inline text field to change name
-                    HStack {
-                        TextField("Your name", text: $nameInput)
-                            .focused($nameFocused)
-                            .submitLabel(.done)
-                            .onSubmit { saveName() }
-
-                        if !nameInput.isEmpty {
-                            Button("Save") { saveName() }
-                                .font(.subheadline.bold())
-                                .foregroundStyle(.blue)
-                        }
+                        .padding(.vertical, 4)
                     }
                 } header: {
                     Text("Profile")
+                }
+                .sheet(isPresented: $showingProfiles) {
+                    ProfileSwitcherView()
                 }
 
                 // MARK: Trip Defaults section
@@ -137,31 +131,10 @@ struct SettingsView: View {
                         .bold()
                 }
             }
-            // Pre-fill the text field with the current saved name
-            .onAppear {
-                nameInput = userName == "there" ? "" : userName
-            }
         }
     }
 
     // MARK: - Helpers
-
-    /// Saves the typed name to @AppStorage (UserDefaults).
-    private func saveName() {
-        let trimmed = nameInput.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty {
-            userName = trimmed
-        }
-        nameFocused = false
-    }
-
-    /// Up-to-2-letter initials from the saved name, e.g. "Daksh Gupta" → "DG"
-    private var initials: String {
-        guard userName != "there" else { return "?" }
-        let words = userName.split(separator: " ")
-        let letters = words.prefix(2).compactMap { $0.first }
-        return String(letters).uppercased()
-    }
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"

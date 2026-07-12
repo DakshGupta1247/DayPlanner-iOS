@@ -19,10 +19,28 @@ final class TripHistoryService {
 
     // MARK: - File location
 
+    // Delegates to ProfileService so each profile gets its own JSON file.
+    // The old "plan_history.json" is migrated to the default profile on first run.
     private var fileURL: URL {
-        FileManager.default
+        Task { await migrateIfNeeded() }
+        return ProfileService.shared.activeHistoryFileURL()
+    }
+
+    // MARK: - One-time migration
+
+    // If the old flat history file exists and the active profile's file doesn't,
+    // copy the old file into the active profile slot so no data is lost.
+    private var hasMigrated = false
+    private func migrateIfNeeded() async {
+        guard !hasMigrated else { return }
+        hasMigrated = true
+        let old = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("plan_history.json")
+        let new = await MainActor.run { ProfileService.shared.activeHistoryFileURL() }
+        guard FileManager.default.fileExists(atPath: old.path),
+              !FileManager.default.fileExists(atPath: new.path) else { return }
+        try? FileManager.default.copyItem(at: old, to: new)
     }
 
     // MARK: - Public API
