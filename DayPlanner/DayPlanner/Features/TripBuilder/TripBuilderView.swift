@@ -1,19 +1,11 @@
 //
 //  TripBuilderView.swift
-//  DayPlanner
+//  DayPlanner (PlanDay)
 //
-//  The full "Plan Your Day" sheet where users search for places and build
-//  their trip. Presented as a sheet from HomeView.
-//
-//  Layout:
-//  - Top: search bar
-//  - Middle: either search results list OR map + stops list (when stops added)
-//  - Bottom: Confirm Trip button
-//
-//  Key SwiftUI concepts used:
-//  - @FocusState: programmatically controls keyboard focus on the search field
-//  - Map with Marker: iOS 17's new declarative MapKit API
-//  - List with onDelete + onMove: drag-to-reorder and swipe-to-delete built in
+//  Multi-day trip builder sheet.
+//  Step 1: Trip name, emoji, cover color.
+//  Step 2: Start date, number of days.
+//  Step 3: Add stops per day using the day tab bar.
 //
 
 import MapKit
@@ -21,25 +13,18 @@ import SwiftUI
 
 struct TripBuilderView: View {
 
-    // The ViewModel manages all state and logic for this sheet
     @State private var viewModel: TripBuilderViewModel
-
-    // Manages the search logic (debounced MKLocalSearch calls)
     @State private var searchService = PlaceSearchService()
-
-    // The text currently typed in the search field
     @State private var searchText = ""
-
-    // True while the search field is active / keyboard is showing
     @FocusState private var isSearchFocused: Bool
-
-    // Lets us close this sheet from inside the view
     @Environment(\.dismiss) private var dismiss
 
-    // Initializer — receives the callback from HomeView
-    init(onTripConfirmed: @escaping (Trip) -> Void) {
+    // Builder step: 0 = metadata, 1 = stops
+    @State private var currentStep = 0
+
+    init(onConfirmed: @escaping (Trip) -> Void) {
         let vm = TripBuilderViewModel()
-        vm.onTripConfirmed = onTripConfirmed
+        vm.onConfirmed = onConfirmed
         _viewModel = State(initialValue: vm)
     }
 
@@ -47,309 +32,322 @@ struct TripBuilderView: View {
         NavigationStack {
             VStack(spacing: 0) {
 
-                // — Search bar —
-                SearchBar(
-                    text: $searchText,
-                    isFocused: $isSearchFocused,
-                    onClear: {
-                        searchText = ""
-                        searchService.clear()
-                        isSearchFocused = false
-                    }
-                )
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                // Step indicator
+                StepIndicator(currentStep: currentStep)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
 
                 Divider()
 
-                // — Main content area —
-                // Show search results when typing, map+stops otherwise
-                if isSearchFocused || !searchText.isEmpty {
-                    SearchResultsSection(
-                        searchService: searchService,
-                        searchText: searchText,
-                        viewModel: viewModel,
-                        onAdd: { mapItem in
-                            viewModel.addStop(from: mapItem)
-                            // After adding, dismiss keyboard and clear search
-                            searchText = ""
-                            searchService.clear()
-                            isSearchFocused = false
-                        }
-                    )
+                if currentStep == 0 {
+                    // Step 1: name + emoji + color + dates
+                    ScrollView {
+                        TripMetadataForm(viewModel: viewModel)
+                    }
                 } else {
-                    TripMapAndStopsSection(viewModel: viewModel)
+                    // Step 2: stops per day
+                    VStack(spacing: 0) {
+                        // Search bar
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            TextField("Search for a place...", text: $searchText)
+                                .focused($isSearchFocused)
+                                .submitLabel(.search)
+                                .autocorrectionDisabled()
+                            if !searchText.isEmpty {
+                                Button {
+                                    searchText = ""; searchService.clear(); isSearchFocused = false
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .background(.quaternary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+
+                        Divider()
+
+                        if isSearchFocused || !searchText.isEmpty {
+                            searchResultsList
+                        } else {
+                            stopsContent
+                        }
+                    }
                 }
 
                 Divider()
 
-                // — Bottom action area —
-                BottomBar(
-                    viewModel: viewModel,
-                    onConfirm: {
-                        viewModel.confirmTrip()
-                        dismiss()
-                    },
-                    onCancel: { dismiss() }
-                )
-                .padding(16)
+                // Bottom action bar
+                bottomBar
+                    .padding(16)
             }
-            .navigationTitle("Plan Your Day")
+            .navigationTitle(currentStep == 0 ? "New Trip" : "Add Stops")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
                 }
-            }
-        }
-        // Fire the search whenever searchText changes
-        .onChange(of: searchText) { _, newValue in
-            searchService.search(query: newValue)
-        }
-    }
-}
-
-// MARK: - Search Bar
-
-private struct SearchBar: View {
-    @Binding var text: String
-    var isFocused: FocusState<Bool>.Binding
-    let onClear: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search for a place...", text: $text)
-                .focused(isFocused)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-
-            if !text.isEmpty {
-                Button(action: onClear) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                if currentStep == 1 {
+                    ToolbarItem(placement: .topBarTrailing) { EditButton() }
                 }
             }
         }
-        .padding(12)
-        .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .onChange(of: searchText) { _, v in searchService.search(query: v) }
     }
-}
 
-// MARK: - Search Results
+    // MARK: - Search results
 
-private struct SearchResultsSection: View {
-    let searchService: PlaceSearchService
-    let searchText: String
-    let viewModel: TripBuilderViewModel
-    let onAdd: (MKMapItem) -> Void
-
-    var body: some View {
-        Group {
-            if searchService.isLoading {
-                // Spinner while search is in flight
-                VStack {
-                    Spacer()
-                    ProgressView("Searching...")
-                    Spacer()
-                }
-            } else if searchService.results.isEmpty && !searchText.isEmpty {
-                // No results state
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("No results for \"\(searchText)\"")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            } else {
-                // Results list
-                List(searchService.results, id: \.self) { mapItem in
-                    // Check if this place is already in the stop list
-                    let coord = mapItem.location.coordinate
-                    let isAdded = viewModel.stops.contains {
-                        abs($0.latitude - coord.latitude) < 0.0001
-                    }
-                    PlaceSearchResultRow(
-                        mapItem: mapItem,
-                        onAdd: { onAdd(mapItem) },
-                        isAdded: isAdded
-                    )
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                }
-                .listStyle(.plain)
-            }
-        }
-    }
-}
-
-// MARK: - Map + Stops List
-
-private struct TripMapAndStopsSection: View {
-    @Bindable var viewModel: TripBuilderViewModel
-
-    var body: some View {
-        if viewModel.stops.isEmpty {
-            // Empty state when no stops added yet
-            VStack(spacing: 16) {
+    @ViewBuilder
+    private var searchResultsList: some View {
+        if searchService.isLoading {
+            VStack { Spacer(); ProgressView("Searching..."); Spacer() }
+        } else if searchService.results.isEmpty && !searchText.isEmpty {
+            VStack(spacing: 12) {
                 Spacer()
-                Image(systemName: "magnifyingglass.circle")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.blue.opacity(0.5))
-                Text("Search for places to visit")
-                    .font(.headline)
-                Text("Type in the search bar above\nto find and add stops to your trip.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(.secondary)
+                Text("No results for \"\(searchText)\"").foregroundStyle(.secondary)
                 Spacer()
             }
         } else {
+            List(searchService.results, id: \.self) { item in
+                let coord = item.location.coordinate
+                let added = viewModel.stops.contains { abs($0.latitude - coord.latitude) < 0.0001 }
+                PlaceSearchResultRow(mapItem: item, onAdd: {
+                    viewModel.addStop(from: item)
+                    searchText = ""; searchService.clear(); isSearchFocused = false
+                }, isAdded: added)
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    // MARK: - Stops content (day tab bar + map + list)
+
+    @ViewBuilder
+    private var stopsContent: some View {
+        ScrollView {
             VStack(spacing: 0) {
-                // — Mini map showing all stop pins —
-                // Map with MapContentBuilder is the iOS 17+ declarative API.
-                // We bind to cameraPosition so the map pans when stops are added.
-                Map(position: $viewModel.cameraPosition) {
-                    ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { index, stop in
-                        Annotation("", coordinate: stop.coordinate) {
-                            StopPin(number: index + 1)
+                // Day tab bar
+                if viewModel.numberOfDays > 1 {
+                    Picker("Day", selection: $viewModel.selectedDayIndex) {
+                        ForEach(0..<viewModel.numberOfDays, id: \.self) { i in
+                            Text("Day \(i + 1)").tag(i)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    Divider()
+                }
+
+                if viewModel.stops.isEmpty {
+                    VStack(spacing: 14) {
+                        Spacer(minLength: 32)
+                        Image(systemName: "magnifyingglass.circle")
+                            .font(.system(size: 48)).foregroundStyle(.blue.opacity(0.4))
+                        Text(viewModel.numberOfDays > 1
+                             ? "No stops for Day \(viewModel.selectedDayIndex + 1) yet"
+                             : "Search above to add stops")
+                            .font(.headline)
+                        Spacer(minLength: 32)
+                    }
+                } else {
+                    Map(position: $viewModel.cameraPosition) {
+                        ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { i, s in
+                            Annotation("", coordinate: s.coordinate) { NumberedPin(number: i + 1) }
+                        }
+                    }
+                    .frame(height: 160)
+                    Divider()
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { i, stop in
+                            StopRow(number: i + 1, stop: stop) { viewModel.removeStop(stop) }
+                                .padding(.horizontal, 16).padding(.vertical, 8)
+                            Divider().padding(.leading, 60)
                         }
                     }
                 }
-                .frame(height: 200)
-
-                Divider()
-
-                // — Trip name field —
-                HStack {
-                    Text("Trip name:")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    TextField("My Day Trip", text: $viewModel.tripName)
-                        .font(.subheadline.bold())
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                Divider()
-
-                // — Ordered stop list with drag-to-reorder + swipe-to-delete —
-                List {
-                    ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { index, stop in
-                        StopRow(number: index + 1, stop: stop) {
-                            viewModel.removeStop(stop)
-                        }
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    }
-                    .onDelete { offsets in viewModel.removeStop(at: offsets) }
-                    .onMove  { source, dest in viewModel.moveStop(from: source, to: dest) }
-                }
-                .listStyle(.plain)
-                // EditButton in the toolbar enables the drag handles
-                .toolbar { EditButton() }
             }
         }
     }
-}
 
-// MARK: - Stop Pin (map annotation)
+    // MARK: - Bottom bar
 
-private struct StopPin: View {
-    let number: Int
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(.blue)
-                .frame(width: 30, height: 30)
-                .shadow(radius: 3)
-            Text("\(number)")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-        }
-    }
-}
-
-// MARK: - Stop Row (in the list)
-
-private struct StopRow: View {
-    let number: Int
-    let stop: Stop
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Numbered badge
-            ZStack {
-                Circle()
-                    .fill(.blue)
-                    .frame(width: 28, height: 28)
-                Text("\(number)")
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(stop.name)
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
-                Text(stop.address)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            // Swipe-to-delete is provided by onDelete above,
-            // but this button gives an extra visible remove option
-            Button(action: onRemove) {
-                Image(systemName: "minus.circle.fill")
-                    .foregroundStyle(.red.opacity(0.8))
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-// MARK: - Bottom Bar
-
-private struct BottomBar: View {
-    let viewModel: TripBuilderViewModel
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        VStack(spacing: 10) {
-            // Stop count summary
-            if !viewModel.stops.isEmpty {
-                Text("\(viewModel.stops.count) stop\(viewModel.stops.count == 1 ? "" : "s") added")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Confirm button — disabled until at least 1 stop is added
-            Button(action: onConfirm) {
-                Text(viewModel.canConfirm ? "Confirm Trip" : "Add at least one stop")
+    @ViewBuilder
+    private var bottomBar: some View {
+        if currentStep == 0 {
+            Button {
+                withAnimation { currentStep = 1 }
+            } label: {
+                Text("Next: Add Stops")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(viewModel.canConfirm ? Color.blue : Color.gray.opacity(0.3))
-                    .foregroundStyle(viewModel.canConfirm ? .white : .secondary)
+                    .background(.blue)
+                    .foregroundStyle(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             }
-            .disabled(!viewModel.canConfirm)
+        } else {
+            VStack(spacing: 10) {
+                let total = viewModel.dayStops.reduce(0) { $0 + $1.count }
+                if total > 0 {
+                    Text("\(total) stop\(total == 1 ? "" : "s") across \(viewModel.numberOfDays) day\(viewModel.numberOfDays == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 10) {
+                    Button { withAnimation { currentStep = 0 } } label: {
+                        Text("Back")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(.secondarySystemBackground))
+                            .foregroundStyle(.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    Button {
+                        viewModel.confirm()
+                        dismiss()
+                    } label: {
+                        Text(viewModel.canConfirm ? "Create Trip" : "Add stops to each day")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(viewModel.canConfirm ? Color.blue : Color.gray.opacity(0.3))
+                            .foregroundStyle(viewModel.canConfirm ? .white : .secondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(!viewModel.canConfirm)
+                }
+            }
         }
+    }
+}
+
+// MARK: - Step Indicator
+
+private struct StepIndicator: View {
+    let currentStep: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<2, id: \.self) { i in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(i <= currentStep ? Color.blue : Color.gray.opacity(0.3))
+                        .frame(width: 8, height: 8)
+                    Text(i == 0 ? "Trip Info" : "Add Stops")
+                        .font(.caption.bold())
+                        .foregroundStyle(i <= currentStep ? .blue : .secondary)
+                }
+                if i < 1 {
+                    Rectangle()
+                        .fill(currentStep > i ? Color.blue : Color.gray.opacity(0.3))
+                        .frame(height: 2)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Trip Metadata Form
+
+private struct TripMetadataForm: View {
+    @Bindable var viewModel: TripBuilderViewModel
+
+    let emojis = ["🗺️","✈️","🏖️","🏔️","🌴","🎭","🍜","🚗","🚂","⛵","🏕️","🌆"]
+    let colors = ["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#14B8A6","#F97316"]
+
+    var body: some View {
+        VStack(spacing: 0) {
+
+            // Name
+            HStack {
+                Text("Trip name").font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                TextField("My Trip", text: $viewModel.tripName)
+                    .font(.subheadline.bold()).multilineTextAlignment(.trailing)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            Divider().padding(.leading, 16)
+
+            // Emoji picker
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Emoji").font(.subheadline).foregroundStyle(.secondary)
+                    .padding(.horizontal, 16).padding(.top, 12)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(emojis, id: \.self) { e in
+                            Button { viewModel.emoji = e } label: {
+                                Text(e).font(.title2)
+                                    .frame(width: 44, height: 44)
+                                    .background(viewModel.emoji == e ? Color.blue.opacity(0.15) : Color(.secondarySystemBackground))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .overlay(viewModel.emoji == e
+                                             ? RoundedRectangle(cornerRadius: 10).stroke(.blue, lineWidth: 2)
+                                             : nil)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.bottom, 12)
+                }
+            }
+            Divider().padding(.leading, 16)
+
+            // Color picker
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Color").font(.subheadline).foregroundStyle(.secondary)
+                    .padding(.horizontal, 16).padding(.top, 12)
+                HStack(spacing: 10) {
+                    ForEach(colors, id: \.self) { hex in
+                        Button { viewModel.coverColor = hex } label: {
+                            Circle()
+                                .fill(Color.hex( hex))
+                                .frame(width: 32, height: 32)
+                                .overlay(viewModel.coverColor == hex
+                                         ? Circle().stroke(.white, lineWidth: 3)
+                                         : nil)
+                                .shadow(color: Color.hex( hex).opacity(0.4), radius: 4)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16).padding(.bottom, 12)
+            }
+            Divider().padding(.leading, 16)
+
+            // Start date
+            DatePicker("Start date", selection: $viewModel.startDate, displayedComponents: .date)
+                .font(.subheadline).padding(.horizontal, 16).padding(.vertical, 6)
+            Divider().padding(.leading, 16)
+
+            // Number of days
+            HStack {
+                Text("Number of days").font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Stepper("\(viewModel.numberOfDays) day\(viewModel.numberOfDays == 1 ? "" : "s")",
+                        value: $viewModel.numberOfDays, in: 1...7)
+                    .fixedSize().font(.subheadline.bold())
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            Divider().padding(.leading, 16)
+
+            // Travel mode
+            Picker("Travel Mode", selection: $viewModel.travelMode) {
+                ForEach(TravelMode.allCases, id: \.self) { m in
+                    Label(m.rawValue, systemImage: m.symbolName).tag(m)
+                }
+            }
+            .font(.subheadline).padding(.horizontal, 16).padding(.vertical, 6)
+            Divider()
+        }
+        .background(Color(.systemBackground))
     }
 }
 
 #Preview {
-    TripBuilderView { trip in
-        print("Trip confirmed: \(trip.name) with \(trip.stops.count) stops")
-    }
+    TripBuilderView { trip in print("Created: \(trip.name)") }
 }

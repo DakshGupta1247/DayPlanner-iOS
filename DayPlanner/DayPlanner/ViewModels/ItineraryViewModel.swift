@@ -94,12 +94,14 @@ final class ItineraryViewModel {
     init(trip: Trip, route: ComputedRoute) {
         self.trip = trip
         self.route = route
-
-        // Default start time: today at 9:00 AM
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: .now)
-        components.hour = 9
-        components.minute = 0
-        self.startTime = Calendar.current.date(from: components) ?? .now
+        // Use the day plan's stored start time if available, otherwise default to 9 AM
+        if let dayStartTime = trip.days.first?.startTime {
+            self.startTime = dayStartTime
+        } else {
+            var c = Calendar.current.dateComponents([.year, .month, .day], from: .now)
+            c.hour = 9; c.minute = 0
+            self.startTime = Calendar.current.date(from: c) ?? .now
+        }
     }
 
     // MARK: - Intent

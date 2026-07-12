@@ -77,7 +77,7 @@ private struct DaySummaryHeader: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(viewModel.trip.name)
                     .font(.title2.bold())
-                Text(viewModel.trip.date.formatted(date: .complete, time: .omitted))
+                Text(viewModel.trip.dateRangeLabel)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

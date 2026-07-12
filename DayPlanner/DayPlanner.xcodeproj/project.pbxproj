@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		30C5DD43300297EA0077735E /* DayPlanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DayPlanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		30C5DE6630030FD10077735E /* Color+Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Color+Hex.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +35,7 @@
 			children = (
 				30C5DD45300297EA0077735E /* DayPlanner */,
 				30C5DD44300297EA0077735E /* Products */,
+				30C5DE5F30030F890077735E /* Extensions */,
 			);
 			sourceTree = "<group>";
 		};
@@ -43,6 +45,14 @@
 				30C5DD43300297EA0077735E /* DayPlanner.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		30C5DE5F30030F890077735E /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				30C5DE6630030FD10077735E /* Color+Hex.swift */,
+			);
+			path = Extensions;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

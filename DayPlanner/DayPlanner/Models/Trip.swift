@@ -1,50 +1,32 @@
 //
 //  Trip.swift
-//  DayPlanner
+//  DayPlanner (PlanDay)
 //
-//  Defines the core data structures for the app.
+//  Stop, Trip, and TravelMode — the core data structures.
 //
-//  A "Stop" is one place the user wants to visit.
-//  A "Trip" is the full day plan — a collection of stops with metadata.
-//
-//  Why structs?
-//  Swift structs are value types — when you copy one, you get a completely
-//  independent copy. This makes state management in SwiftUI much safer and
-//  more predictable than using classes.
-//
-//  Why Identifiable?
-//  SwiftUI's List and ForEach need a way to uniquely identify each item
-//  so it can animate additions/removals correctly. Conforming to Identifiable
-//  (by adding an `id` property) gives SwiftUI that unique key.
-//
-//  Why Codable?
-//  Codable lets Swift automatically convert our structs to/from JSON.
-//  We'll use this in FR7 (Trip History) to save and load trips from disk.
+//  Trip now wraps an array of DayPlans (days) plus display metadata:
+//  emoji and coverColor are user-picked at creation time.
+//  status is auto-derived (no stored value).
 //
 
 import Foundation
-import CoreLocation  // gives us CLLocationCoordinate2D (lat/lng)
+import CoreLocation
 
 // MARK: - Stop
 
-/// One place the user wants to visit during their day trip.
 struct Stop: Identifiable, Codable, Hashable {
 
-    let id: UUID            // unique identifier, auto-generated
-    var name: String        // display name, e.g. "Eiffel Tower"
-    var address: String     // human-readable address
-    var latitude: Double    // geographic coordinate
+    let id: UUID
+    var name: String
+    var address: String
+    var latitude: Double
     var longitude: Double
-    var minutesToSpend: Int // how long the user plans to stay (in minutes)
+    var minutesToSpend: Int
 
-    // Computed property — converts our stored lat/lng into a CLLocationCoordinate2D
-    // which is what MapKit expects. Not stored, just computed on the fly.
-    // nonisolated: safe to call from any actor/thread since it only reads value types.
     nonisolated var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    // A default initializer so we can create stops easily
     init(id: UUID = UUID(), name: String, address: String,
          latitude: Double, longitude: Double, minutesToSpend: Int = 30) {
         self.id = id
@@ -58,45 +40,84 @@ struct Stop: Identifiable, Codable, Hashable {
 
 // MARK: - Trip
 
-/// The full day plan — contains an ordered list of stops and metadata.
+/// A multi-day trip — a named container of DayPlans.
 struct Trip: Identifiable, Codable, Hashable {
 
     let id: UUID
-    var name: String          // e.g. "Weekend in Paris"
-    var date: Date            // the day this trip is planned for
-    var stops: [Stop]         // ordered list of stops
-    var travelMode: TravelMode
+    var name: String        // e.g. "Goa Trip 🌴"
+    var emoji: String       // single emoji chosen by user, e.g. "🗺️"
+    var coverColor: String  // hex string, e.g. "#3B82F6"
+    var days: [DayPlan]     // one DayPlan per day, in date order
 
-    // Computed: total minutes the user plans to spend across all stops
-    var totalMinutesToSpend: Int {
-        stops.reduce(0) { $0 + $1.minutesToSpend }
+    // MARK: - Computed
+
+    var startDate: Date   { days.first?.date ?? .now }
+    var endDate: Date     { days.last?.date  ?? .now }
+    var totalStops: Int   { days.reduce(0) { $0 + $1.stops.count } }
+    var isMultiDay: Bool  { days.count > 1 }
+
+    /// All stops across all days — used by RouteService and Navigation
+    var stops: [Stop]     { days.flatMap(\.stops) }
+
+    var travelMode: TravelMode { days.first?.travelMode ?? .driving }
+
+    var totalMinutesToSpend: Int { days.reduce(0) { $0 + $1.totalMinutesToSpend } }
+
+    /// Auto-derived: active if any day is today, completed if last day passed, else upcoming
+    var status: PlanStatus {
+        if days.contains(where: { $0.isToday }) { return .active }
+        if let last = days.last, last.date < Calendar.current.startOfDay(for: .now) {
+            return .completed
+        }
+        return .upcoming
     }
 
-    // Computed: true if this trip is planned for today
-    var isToday: Bool {
-        Calendar.current.isDateInToday(date)
+    var isToday: Bool { status == .active }
+
+    /// "Jul 12" for single-day, "Jul 12 – Jul 14" for multi-day
+    var dateRangeLabel: String {
+        let fmt = Date.FormatStyle().month(.abbreviated).day()
+        guard isMultiDay else { return startDate.formatted(fmt) }
+        return "\(startDate.formatted(fmt)) – \(endDate.formatted(fmt))"
     }
 
+    /// "3 Days · 12 Stops"
+    var summaryLabel: String {
+        let d = days.count
+        let s = totalStops
+        return "\(d) Day\(d == 1 ? "" : "s") · \(s) Stop\(s == 1 ? "" : "s")"
+    }
+
+    // MARK: - Init
+
+    init(id: UUID = UUID(), name: String = "My Trip",
+         emoji: String = "🗺️", coverColor: String = "#3B82F6",
+         days: [DayPlan] = []) {
+        self.id = id
+        self.name = name
+        self.emoji = emoji
+        self.coverColor = coverColor
+        self.days = days
+    }
+
+    /// Convenience single-day init — keeps old call sites working
     init(id: UUID = UUID(), name: String = "My Day Trip",
          date: Date = .now, stops: [Stop] = [], travelMode: TravelMode = .driving) {
         self.id = id
         self.name = name
-        self.date = date
-        self.stops = stops
-        self.travelMode = travelMode
+        self.emoji = "🗺️"
+        self.coverColor = "#3B82F6"
+        self.days = [DayPlan(name: name, date: date, stops: stops, travelMode: travelMode)]
     }
 }
 
 // MARK: - TravelMode
 
-/// How the user plans to get between stops.
-/// Raw string values let Codable serialize these automatically.
 enum TravelMode: String, Codable, CaseIterable {
     case driving  = "Driving"
     case walking  = "Walking"
     case transit  = "Transit"
 
-    // SF Symbol name for each mode — used in the UI
     var symbolName: String {
         switch self {
         case .driving: return "car.fill"
