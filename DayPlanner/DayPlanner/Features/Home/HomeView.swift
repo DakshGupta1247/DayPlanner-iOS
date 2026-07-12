@@ -99,8 +99,8 @@ struct HomeView: View {
             ProfileSwitcherView()
                 .onDisappear { viewModel.reload() }
         }
-        .sheet(isPresented: $showingSettings) { SettingsView() }
         .sheet(isPresented: $showingHistory)  { TripHistoryView() }
+        .sheet(isPresented: $showingSettings) { SettingsView() }
         // Create sheets
         .sheet(isPresented: $viewModel.showingDayPlanBuilder) {
             DayPlanBuilderView { plan in viewModel.saveDayPlan(plan) }

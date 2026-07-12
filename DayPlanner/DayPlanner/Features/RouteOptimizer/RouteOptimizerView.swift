@@ -127,12 +127,31 @@ private struct RouteSuccessCard: View {
     @State private var showingItinerary  = false
     @State private var showingNavigation = false
 
+    @State private var showPullHint = true
+
     var body: some View {
         VStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(.secondary.opacity(0.4))
-                .frame(width: 40, height: 4)
-                .padding(.top, 12)
+
+            // Drag handle + pull hint
+            VStack(spacing: 4) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.secondary.opacity(0.5))
+                    .frame(width: 44, height: 5)
+
+                if showPullHint {
+                    Label("Swipe up for details", systemImage: "chevron.up")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                withAnimation(.easeOut(duration: 0.4)) { showPullHint = false }
+                            }
+                        }
+                }
+            }
+            .padding(.top, 10)
+            .padding(.bottom, 4)
 
             VStack(alignment: .leading, spacing: 16) {
 
