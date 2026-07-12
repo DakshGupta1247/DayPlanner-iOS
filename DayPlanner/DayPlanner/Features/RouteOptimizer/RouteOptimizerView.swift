@@ -127,6 +127,7 @@ struct RouteOptimizerView: View {
     private var bottomCard: some View {
         switch viewModel.routeState {
         case .idle:       EmptyView()
+        case .locating:   LocatingCard()
         case .loading:    LoadingCard()
         case .success(let route):
             RouteSuccessCard(route: route, trip: viewModel.trip) {
@@ -301,6 +302,31 @@ private struct RouteStopPin: View {
             Circle().fill(color).frame(width: 32, height: 32).shadow(radius: 3)
             Text("\(number)").font(.caption.bold()).foregroundStyle(.white)
         }
+    }
+}
+
+// MARK: - Locating Card (shown while waiting for first GPS fix)
+
+private struct LocatingCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            ProgressView().scaleEffect(1.2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Getting your location...")
+                    .font(.headline)
+                Text("Finding the stop closest to where you are")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "location.fill")
+                .foregroundStyle(.blue)
+                .font(.title3)
+        }
+        .padding(20)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.1), radius: 10, y: -2)
+        .padding(.horizontal, 16).padding(.bottom, 32)
     }
 }
 

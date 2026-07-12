@@ -14,7 +14,7 @@ import Observation
 @MainActor
 final class LocationService: NSObject {
 
-    // The user's most recent GPS position — nil until the first location fix
+    // The user's most recent raw GPS position — nil until the first location fix
     var currentLocation: CLLocation? = nil
 
     // Tracks the app's current location permission state
@@ -22,6 +22,10 @@ final class LocationService: NSObject {
 
     // Latest trust verdict — drives the GPS trust chip in LiveNavigationView
     var latestTrust: LocationTrust? = nil
+
+    // True once trustedLocationStream has emitted at least one location.
+    // RouteOptimizerViewModel uses this to know when GPS is ready.
+    var hasReceivedFirstFix: Bool = false
 
     // Stream of validated (trusted + degraded) locations for navigation consumers
     private(set) var trustedLocationStream: AsyncStream<CLLocation>
@@ -90,6 +94,7 @@ extension LocationService: CLLocationManagerDelegate {
             // Emit trusted and degraded fixes; drop untrusted ones
             switch trust {
             case .trusted(let loc), .degraded(let loc, _):
+                self.hasReceivedFirstFix = true
                 self.trustedLocationContinuation?.yield(loc)
             case .untrusted:
                 break

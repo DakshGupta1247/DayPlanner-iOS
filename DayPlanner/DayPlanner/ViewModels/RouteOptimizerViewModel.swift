@@ -4,20 +4,25 @@
 //
 //  Accepts a DayPlan and computes its optimized route.
 //
-//  GPS integration (FR1):
-//  - LocationService is injected so we can use the user's current GPS position
-//    as the invisible starting point for nearest-neighbour optimisation.
-//  - If permission is denied or location is unavailable, falls back to the
-//    first user-added stop (legacy behaviour) and shows an info banner.
+//  ROOT CAUSE OF GPS FALLBACK BUG (always showing banner on real device):
+//  The old calculateRoute() called startTracking() then immediately read
+//  currentLocation on the very next line — the GPS chip hadn't had time to
+//  deliver its first fix, so currentLocation was always nil, and the fallback
+//  banner always fired.
 //
-//  Re-optimise on stop reached (FR4):
-//  - onStopReached(_:) marks a stop visited, removes it from remaining stops,
-//    and re-runs optimisation from the user's current GPS position.
-//  - Shows a brief "Route updated — X stops remaining" toast after each update.
+//  Additionally, LocationIntegrityGate was rejecting the first cached fix
+//  that Core Location delivers on a real device (often 10–60s old), because
+//  the old 5-second staleness check treated it as .untrusted.
 //
-//  Edit-mode state (drag-to-reorder):
-//  - isEditingRoute / reorderedStops / hasUserReordered / showDiscardAlert
-//  - recalculateWithUserOrder() respects the user's manual sequence.
+//  Fix:
+//  1. calculateRoute() now waits up to 5 seconds for the first trusted fix
+//     via waitForLocation(timeout:) before running optimisation.
+//  2. LocationIntegrityGate's first-fix path is now lenient (no staleness/
+//     teleport check when previous == nil).
+//  3. A new .locating RouteState drives a "📍 Getting your location..." card
+//     in the UI so the user sees the app is actively trying to get GPS.
+//  4. If GPS is denied → skip wait, show banner, optimise with first stop.
+//  5. If GPS times out (5s) → fallback gracefully, show banner.
 //
 
 import CoreLocation
@@ -27,6 +32,7 @@ import SwiftUI
 
 enum RouteState {
     case idle
+    case locating      // waiting for first GPS fix (new)
     case loading
     case success(ComputedRoute)
     case failure(String)
@@ -63,7 +69,6 @@ final class RouteOptimizerViewModel {
 
     // MARK: - Re-optimise tracking
 
-    /// Stops remaining after some have been visited (populated by onStopReached)
     private var visitedStopIDs: Set<UUID> = []
 
     private let routeService = RouteService()
@@ -77,31 +82,87 @@ final class RouteOptimizerViewModel {
     }
 
     var isLoading: Bool {
-        if case .loading = routeState { return true }
-        return false
+        switch routeState {
+        case .loading, .locating: return true
+        default: return false
+        }
     }
 
-    // MARK: - Initial route calculation (Fix 1 — GPS as starting point)
+    // MARK: - GPS wait helper
+
+    /// Waits up to `timeout` seconds for the first trusted GPS fix.
+    /// Returns the coordinate immediately if one is already available.
+    /// Returns nil if denied, timeout reached, or no fix arrives.
+    private func waitForLocation(timeout: TimeInterval = 5.0) async -> CLLocationCoordinate2D? {
+        // Already have a fix — return it immediately
+        if let loc = locationService.currentLocation, locationService.hasReceivedFirstFix {
+            return loc.coordinate
+        }
+
+        // Capture the stream on MainActor before entering the task group
+        let stream = locationService.trustedLocationStream
+
+        // Race the stream against a timeout
+        return await withTaskGroup(of: CLLocationCoordinate2D?.self) { group in
+            // Task 1: wait for first fix from trustedLocationStream
+            group.addTask {
+                for await location in stream {
+                    return location.coordinate
+                }
+                return nil
+            }
+
+            // Task 2: timeout after N seconds
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+
+            // Return whichever finishes first (fix OR timeout), cancel the other
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
+
+    // MARK: - Initial route calculation
 
     func calculateRoute() async {
-        // Request GPS permission if not yet determined
+        // Step 1: Handle permission
+        if locationService.isDenied {
+            // User has explicitly denied — skip GPS, run immediately with fallback
+            showGPSUnavailableBanner = true
+            routeState = .loading
+            await runOptimise(startingCoordinate: nil)
+            return
+        }
+
         if locationService.authorizationStatus == .notDetermined {
             locationService.requestPermission()
-            // Give the system a moment to present the dialog before proceeding
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            // Give the system dialog time to appear and for user to respond
+            try? await Task.sleep(nanoseconds: 800_000_000)
         }
+
+        // Step 2: Start tracking and show "Getting your location..." state
         locationService.startTracking()
+        routeState = .locating
 
-        routeState = .loading
+        // Step 3: Wait up to 5s for the first trusted GPS fix
+        let gpsCoord = await waitForLocation(timeout: 5.0)
 
-        // Use current GPS location as the invisible origin (Stop #0) if available
-        let gpsCoord = locationService.isAuthorized ? locationService.currentLocation?.coordinate : nil
+        // Step 4: Show banner only if truly no fix arrived
         showGPSUnavailableBanner = (gpsCoord == nil)
 
+        // Step 5: Run optimisation with whatever we got
+        routeState = .loading
+        await runOptimise(startingCoordinate: gpsCoord)
+    }
+
+    private func runOptimise(startingCoordinate: CLLocationCoordinate2D?) async {
         do {
             let route = try await routeService.computeRoute(
                 for: dayPlan,
-                startingCoordinate: gpsCoord
+                startingCoordinate: startingCoordinate
             )
             routeState = .success(route)
             cameraPosition = Self.cameraToFit(stops: route.orderedStops)
@@ -110,24 +171,16 @@ final class RouteOptimizerViewModel {
         }
     }
 
-    // MARK: - Re-optimise after a stop is reached (Fix 2)
+    // MARK: - Re-optimise after a stop is reached
 
-    /// Call this when the user physically arrives at a stop (within 50m).
-    /// Marks it visited, removes it, and re-optimises the remaining stops
-    /// from the user's current GPS position.
     func onStopReached(_ stop: Stop) {
         guard case .success(let currentRoute) = routeState else { return }
 
         visitedStopIDs.insert(stop.id)
         let remaining = currentRoute.orderedStops.filter { !visitedStopIDs.contains($0.id) }
 
-        guard !remaining.isEmpty else {
-            // All stops done — nothing more to optimise
-            return
-        }
+        guard !remaining.isEmpty else { return }
 
-        // Re-optimise is near-instant (no MKDirections needed for ordering),
-        // so we don't show a loading state — just update silently then show toast.
         let currentCoord = locationService.currentLocation?.coordinate
 
         Task {
@@ -139,14 +192,7 @@ final class RouteOptimizerViewModel {
                         from: coord,
                         travelMode: dayPlan.travelMode
                     )
-                } else if remaining.count >= 2 {
-                    // GPS unavailable — re-optimise without a starting coordinate
-                    newRoute = try await routeService.computeRoute(
-                        orderedStops: remaining,
-                        travelMode: dayPlan.travelMode
-                    )
                 } else {
-                    // Only 1 stop left — no optimisation needed, just rebuild legs
                     newRoute = try await routeService.computeRoute(
                         orderedStops: remaining,
                         travelMode: dayPlan.travelMode
@@ -157,7 +203,6 @@ final class RouteOptimizerViewModel {
                 trip = Trip(id: dayPlan.id, name: dayPlan.name,
                             date: dayPlan.date, stops: newRoute.orderedStops,
                             travelMode: dayPlan.travelMode)
-                // Show re-optimise toast
                 reoptimiseToastMessage = "Route updated — \(remaining.count) stop\(remaining.count == 1 ? "" : "s") remaining"
                 showReoptimiseToast = true
                 Task {
@@ -165,12 +210,12 @@ final class RouteOptimizerViewModel {
                     showReoptimiseToast = false
                 }
             } catch {
-                // Silently ignore re-optimise errors — keep existing route
+                // Silently keep existing route on re-optimise failure
             }
         }
     }
 
-    // MARK: - Recalculate with user-defined order (drag-to-reorder)
+    // MARK: - Recalculate with user-defined order
 
     func recalculateWithUserOrder() async {
         guard !reorderedStops.isEmpty else { return }
