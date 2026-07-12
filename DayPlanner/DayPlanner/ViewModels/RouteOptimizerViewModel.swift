@@ -3,16 +3,24 @@
 //  DayPlanner (PlanDay)
 //
 //  Accepts a DayPlan and computes its optimized route.
-//  Keeps a Trip reference so NavigationView / ItineraryView can still receive it.
 //
-//  Edit-mode state:
-//  isEditingRoute    — true while the drag-to-reorder list is shown
-//  reorderedStops    — working copy of stops the user is dragging around
-//  hasUserReordered  — true once the user makes at least one move
-//  showDiscardAlert  — shown when Cancel is tapped after a reorder change
-//  showSuccessToast  — shown for 2.5s after a successful recalculation
+//  GPS integration (FR1):
+//  - LocationService is injected so we can use the user's current GPS position
+//    as the invisible starting point for nearest-neighbour optimisation.
+//  - If permission is denied or location is unavailable, falls back to the
+//    first user-added stop (legacy behaviour) and shows an info banner.
+//
+//  Re-optimise on stop reached (FR4):
+//  - onStopReached(_:) marks a stop visited, removes it from remaining stops,
+//    and re-runs optimisation from the user's current GPS position.
+//  - Shows a brief "Route updated — X stops remaining" toast after each update.
+//
+//  Edit-mode state (drag-to-reorder):
+//  - isEditingRoute / reorderedStops / hasUserReordered / showDiscardAlert
+//  - recalculateWithUserOrder() respects the user's manual sequence.
 //
 
+import CoreLocation
 import MapKit
 import Observation
 import SwiftUI
@@ -29,18 +37,34 @@ enum RouteState {
 final class RouteOptimizerViewModel {
 
     let dayPlan: DayPlan
-    var trip: Trip          // synthetic single-day trip for downstream views
+    var trip: Trip
 
     var routeState: RouteState = .idle
     var cameraPosition: MapCameraPosition
 
-    // MARK: - Edit mode state
+    // MARK: - GPS
+
+    let locationService = LocationService()
+    /// True when GPS is unavailable / denied — drives the info banner in the view
+    var showGPSUnavailableBanner = false
+
+    // MARK: - Edit mode (drag-to-reorder)
 
     var isEditingRoute = false
     var reorderedStops: [Stop] = []
     var hasUserReordered = false
     var showDiscardAlert = false
+
+    // MARK: - Toast banners
+
     var showSuccessToast = false
+    var reoptimiseToastMessage = ""
+    var showReoptimiseToast = false
+
+    // MARK: - Re-optimise tracking
+
+    /// Stops remaining after some have been visited (populated by onStopReached)
+    private var visitedStopIDs: Set<UUID> = []
 
     private let routeService = RouteService()
 
@@ -57,12 +81,28 @@ final class RouteOptimizerViewModel {
         return false
     }
 
-    // MARK: - Route calculation
+    // MARK: - Initial route calculation (Fix 1 — GPS as starting point)
 
     func calculateRoute() async {
+        // Request GPS permission if not yet determined
+        if locationService.authorizationStatus == .notDetermined {
+            locationService.requestPermission()
+            // Give the system a moment to present the dialog before proceeding
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        locationService.startTracking()
+
         routeState = .loading
+
+        // Use current GPS location as the invisible origin (Stop #0) if available
+        let gpsCoord = locationService.isAuthorized ? locationService.currentLocation?.coordinate : nil
+        showGPSUnavailableBanner = (gpsCoord == nil)
+
         do {
-            let route = try await routeService.computeRoute(for: dayPlan)
+            let route = try await routeService.computeRoute(
+                for: dayPlan,
+                startingCoordinate: gpsCoord
+            )
             routeState = .success(route)
             cameraPosition = Self.cameraToFit(stops: route.orderedStops)
         } catch {
@@ -70,7 +110,68 @@ final class RouteOptimizerViewModel {
         }
     }
 
-    /// Recalculates the route using the user's manually reordered stop sequence.
+    // MARK: - Re-optimise after a stop is reached (Fix 2)
+
+    /// Call this when the user physically arrives at a stop (within 50m).
+    /// Marks it visited, removes it, and re-optimises the remaining stops
+    /// from the user's current GPS position.
+    func onStopReached(_ stop: Stop) {
+        guard case .success(let currentRoute) = routeState else { return }
+
+        visitedStopIDs.insert(stop.id)
+        let remaining = currentRoute.orderedStops.filter { !visitedStopIDs.contains($0.id) }
+
+        guard !remaining.isEmpty else {
+            // All stops done — nothing more to optimise
+            return
+        }
+
+        // Re-optimise is near-instant (no MKDirections needed for ordering),
+        // so we don't show a loading state — just update silently then show toast.
+        let currentCoord = locationService.currentLocation?.coordinate
+
+        Task {
+            do {
+                let newRoute: ComputedRoute
+                if remaining.count >= 2, let coord = currentCoord {
+                    newRoute = try await routeService.computeRoute(
+                        remainingStops: remaining,
+                        from: coord,
+                        travelMode: dayPlan.travelMode
+                    )
+                } else if remaining.count >= 2 {
+                    // GPS unavailable — re-optimise without a starting coordinate
+                    newRoute = try await routeService.computeRoute(
+                        orderedStops: remaining,
+                        travelMode: dayPlan.travelMode
+                    )
+                } else {
+                    // Only 1 stop left — no optimisation needed, just rebuild legs
+                    newRoute = try await routeService.computeRoute(
+                        orderedStops: remaining,
+                        travelMode: dayPlan.travelMode
+                    )
+                }
+                routeState = .success(newRoute)
+                cameraPosition = Self.cameraToFit(stops: newRoute.orderedStops)
+                trip = Trip(id: dayPlan.id, name: dayPlan.name,
+                            date: dayPlan.date, stops: newRoute.orderedStops,
+                            travelMode: dayPlan.travelMode)
+                // Show re-optimise toast
+                reoptimiseToastMessage = "Route updated — \(remaining.count) stop\(remaining.count == 1 ? "" : "s") remaining"
+                showReoptimiseToast = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    showReoptimiseToast = false
+                }
+            } catch {
+                // Silently ignore re-optimise errors — keep existing route
+            }
+        }
+    }
+
+    // MARK: - Recalculate with user-defined order (drag-to-reorder)
+
     func recalculateWithUserOrder() async {
         guard !reorderedStops.isEmpty else { return }
         routeState = .loading
@@ -81,14 +182,12 @@ final class RouteOptimizerViewModel {
             )
             routeState = .success(route)
             cameraPosition = Self.cameraToFit(stops: route.orderedStops)
-            // Update the synthetic trip so Itinerary/Navigation use the new order
             trip = Trip(id: dayPlan.id, name: dayPlan.name,
                         date: dayPlan.date, stops: reorderedStops,
                         travelMode: dayPlan.travelMode)
             isEditingRoute = false
             hasUserReordered = false
             showSuccessToast = true
-            // Auto-dismiss toast after 2.5 seconds
             Task {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
                 showSuccessToast = false
@@ -113,7 +212,6 @@ final class RouteOptimizerViewModel {
         hasUserReordered = true
     }
 
-    /// Called when the user taps Cancel in edit mode.
     func requestCancelEdit() {
         if hasUserReordered {
             showDiscardAlert = true

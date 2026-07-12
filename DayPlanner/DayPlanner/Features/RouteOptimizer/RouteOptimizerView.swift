@@ -31,12 +31,36 @@ struct RouteOptimizerView: View {
                 bottomCard
             }
 
-            // Success toast
-            if viewModel.showSuccessToast {
-                toastBanner
+            // Toast banners — stacked at the top
+            VStack(spacing: 8) {
+                if viewModel.showGPSUnavailableBanner {
+                    GPSUnavailableBanner()
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                if viewModel.showSuccessToast {
+                    toastBanner(
+                        icon: "checkmark.circle.fill",
+                        iconColor: .green,
+                        message: "Route updated based on your preferences"
+                    )
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(10)
+                }
+                if viewModel.showReoptimiseToast {
+                    toastBanner(
+                        icon: "arrow.triangle.2.circlepath",
+                        iconColor: .blue,
+                        message: viewModel.reoptimiseToastMessage
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                Spacer()
             }
+            .padding(.top, 12)
+            .padding(.horizontal, 24)
+            .zIndex(10)
+            .animation(.spring(response: 0.4), value: viewModel.showGPSUnavailableBanner)
+            .animation(.spring(response: 0.4), value: viewModel.showSuccessToast)
+            .animation(.spring(response: 0.4), value: viewModel.showReoptimiseToast)
         }
         .navigationTitle(viewModel.isEditingRoute ? "Edit Route" : "Optimized Route")
         .navigationBarTitleDisplayMode(.inline)
@@ -193,11 +217,11 @@ struct RouteOptimizerView: View {
 
     // MARK: - Toast
 
-    private var toastBanner: some View {
+    private func toastBanner(icon: String, iconColor: Color, message: String) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-            Text("Route updated based on your preferences")
+            Image(systemName: icon)
+                .foregroundStyle(iconColor)
+            Text(message)
                 .font(.subheadline.bold())
         }
         .padding(.horizontal, 20)
@@ -205,9 +229,6 @@ struct RouteOptimizerView: View {
         .background(.regularMaterial)
         .clipShape(Capsule())
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        .frame(maxWidth: .infinity, alignment: .top)
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
     }
 }
 
@@ -463,5 +484,25 @@ private struct ErrorCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.1), radius: 10, y: -2)
         .padding(.horizontal, 16).padding(.bottom, 32)
+    }
+}
+
+// MARK: - GPS Unavailable Banner
+
+private struct GPSUnavailableBanner: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "location.slash.fill")
+                .font(.caption.bold())
+                .foregroundStyle(.orange)
+            Text("Using first added stop as start (location access unavailable)")
+                .font(.caption)
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
     }
 }
