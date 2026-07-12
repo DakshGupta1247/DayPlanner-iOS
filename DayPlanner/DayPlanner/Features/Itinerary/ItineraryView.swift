@@ -168,9 +168,9 @@ private struct TimelineRow: View {
         .padding(.horizontal, 20)
         // Duration picker sheet
         .sheet(isPresented: $showingDurationPicker) {
-            DurationPickerSheet(
+            StopDurationPickerSheet(
                 stopName: entry.stop.name,
-                currentMinutes: entry.stop.minutesToSpend,
+                currentMinutes: entry.effectiveMinutes,
                 onConfirm: onMinutesChanged
             )
         }
@@ -263,10 +263,10 @@ private struct StopCard: View {
 
                 Spacer()
 
-                // Editable duration badge
+                // Editable duration badge — shows effective minutes (may be overridden)
                 Button(action: onEditDuration) {
                     HStack(spacing: 4) {
-                        Text("\(entry.stop.minutesToSpend) min")
+                        Text("\(entry.effectiveMinutes) min")
                             .font(.caption.bold())
                         Image(systemName: "pencil")
                             .font(.caption2)
@@ -376,89 +376,7 @@ private struct StartTimePicker: View {
     }
 }
 
-// MARK: - Duration Picker Sheet
-
-private struct DurationPickerSheet: View {
-    let stopName: String
-    let currentMinutes: Int
-    let onConfirm: (Int) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    // Local slider value — initialized from currentMinutes
-    @State private var minutes: Double
-
-    init(stopName: String, currentMinutes: Int, onConfirm: @escaping (Int) -> Void) {
-        self.stopName = stopName
-        self.currentMinutes = currentMinutes
-        self.onConfirm = onConfirm
-        _minutes = State(initialValue: Double(currentMinutes))
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Text(stopName)
-                    .font(.headline)
-
-                // Big time display
-                Text("\(Int(minutes)) min")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundStyle(.blue)
-
-                // Slider: 5 min → 240 min (4 hours)
-                Slider(value: $minutes, in: 5...240, step: 5)
-                    .padding(.horizontal)
-
-                HStack {
-                    Text("5 min").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Text("4 hours").font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
-
-                // Quick-pick buttons
-                HStack(spacing: 12) {
-                    ForEach([15, 30, 45, 60, 90], id: \.self) { preset in
-                        Button("\(preset)m") {
-                            minutes = Double(preset)
-                        }
-                        .font(.caption.bold())
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Int(minutes) == preset ? Color.blue : Color.blue.opacity(0.1))
-                        .foregroundStyle(Int(minutes) == preset ? .white : .blue)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                }
-
-                Spacer()
-
-                Button {
-                    onConfirm(Int(minutes))
-                    dismiss()
-                } label: {
-                    Text("Update")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(.blue)
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-                .padding(.horizontal)
-            }
-            .padding(.top, 24)
-            .navigationTitle("Time at Stop")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-}
+// DurationPickerSheet is now the shared StopDurationPickerSheet in DayPlanBuilderView.swift
 
 #Preview {
     NavigationStack {

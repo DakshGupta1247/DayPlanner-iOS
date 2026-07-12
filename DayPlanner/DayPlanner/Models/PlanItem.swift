@@ -32,6 +32,13 @@ enum PlanItem: Identifiable {
         }
     }
 
+    var name: String {
+        switch self {
+        case .singleDay(let d):    return d.name
+        case .multiDayTrip(let t): return t.name
+        }
+    }
+
     var status: PlanStatus {
         switch self {
         case .singleDay(let d):    return d.status

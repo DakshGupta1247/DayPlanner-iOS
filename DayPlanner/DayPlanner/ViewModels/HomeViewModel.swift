@@ -67,16 +67,22 @@ final class HomeViewModel {
     func saveDayPlan(_ plan: DayPlan) {
         let item = PlanItem.singleDay(plan)
         TripHistoryService.shared.save(item)
+        // Schedule (or update) a reminder notification for this plan.
+        Task { await NotificationService.shared.scheduleReminder(for: item) }
         reload()
     }
 
     func saveTrip(_ trip: Trip) {
         let item = PlanItem.multiDayTrip(trip)
         TripHistoryService.shared.save(item)
+        // Schedule (or update) a reminder notification for this trip.
+        Task { await NotificationService.shared.scheduleReminder(for: item) }
         reload()
     }
 
     func delete(_ item: PlanItem) {
+        // Cancel the pending notification before removing the plan.
+        NotificationService.shared.cancelReminder(for: item.id)
         TripHistoryService.shared.delete(id: item.id)
         reload()
     }

@@ -175,8 +175,13 @@ struct TripBuilderView: View {
                     Divider()
                     LazyVStack(spacing: 0) {
                         ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { i, stop in
-                            StopRow(number: i + 1, stop: stop) { viewModel.removeStop(stop) }
-                                .padding(.horizontal, 16).padding(.vertical, 8)
+                            StopRow(
+                                number: i + 1,
+                                stop: stop,
+                                onRemove: { viewModel.removeStop(stop) },
+                                onDurationChanged: { viewModel.updateDuration(for: stop, minutes: $0) }
+                            )
+                            .padding(.horizontal, 16).padding(.vertical, 8)
                             Divider().padding(.leading, 60)
                         }
                     }

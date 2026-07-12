@@ -119,6 +119,12 @@ final class TripBuilderViewModel {
     func moveStop(from source: IndexSet, to dest: Int) { dayStops[selectedDayIndex].move(fromOffsets: source, toOffset: dest) }
     func removeStop(_ stop: Stop) { dayStops[selectedDayIndex].removeAll { $0.id == stop.id } }
 
+    // Updates how many minutes the user plans to spend at a specific stop on the current day.
+    func updateDuration(for stop: Stop, minutes: Int) {
+        guard let i = dayStops[selectedDayIndex].firstIndex(where: { $0.id == stop.id }) else { return }
+        dayStops[selectedDayIndex][i].minutesToSpend = max(5, minutes)
+    }
+
     func confirm() {
         let days = (0..<numberOfDays).map { i -> DayPlan in
             // Reuse original day IDs when editing so TripHistoryService upserts correctly

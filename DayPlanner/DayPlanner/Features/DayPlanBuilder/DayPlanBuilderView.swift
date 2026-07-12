@@ -185,8 +185,13 @@ struct DayPlanBuilderView: View {
 
                     LazyVStack(spacing: 0) {
                         ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { i, stop in
-                            StopRow(number: i + 1, stop: stop) { viewModel.removeStop(stop) }
-                                .padding(.horizontal, 16).padding(.vertical, 8)
+                            StopRow(
+                                number: i + 1,
+                                stop: stop,
+                                onRemove: { viewModel.removeStop(stop) },
+                                onDurationChanged: { viewModel.updateDuration(for: stop, minutes: $0) }
+                            )
+                            .padding(.horizontal, 16).padding(.vertical, 8)
                             Divider().padding(.leading, 60)
                         }
                     }
@@ -212,6 +217,11 @@ struct StopRow: View {
     let number: Int
     let stop: Stop
     let onRemove: () -> Void
+    // Called when user changes the time-at-stop. Optional so existing callers without
+    // duration editing still compile (TripBuilderView reuses this struct too).
+    var onDurationChanged: ((Int) -> Void)? = nil
+
+    @State private var showingDurationPicker = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -221,11 +231,118 @@ struct StopRow: View {
                 Text(stop.address).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+
+            // Duration badge — tappable if a callback was provided
+            if onDurationChanged != nil {
+                Button { showingDurationPicker = true } label: {
+                    Text("\(stop.minutesToSpend) min")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundStyle(.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+
             Button(action: onRemove) {
                 Image(systemName: "minus.circle.fill").foregroundStyle(.red.opacity(0.8))
             }
         }
         .padding(.vertical, 2)
+        .sheet(isPresented: $showingDurationPicker) {
+            StopDurationPickerSheet(
+                stopName: stop.name,
+                currentMinutes: stop.minutesToSpend
+            ) { newMinutes in
+                onDurationChanged?(newMinutes)
+            }
+        }
+    }
+}
+
+// MARK: - Stop Duration Picker Sheet
+// A compact half-height sheet with a slider + quick-pick presets.
+// Used both in DayPlanBuilderView (planning) and ItineraryView (adjusting).
+struct StopDurationPickerSheet: View {
+    let stopName: String
+    let currentMinutes: Int
+    let onConfirm: (Int) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var minutes: Double
+
+    init(stopName: String, currentMinutes: Int, onConfirm: @escaping (Int) -> Void) {
+        self.stopName = stopName
+        self.currentMinutes = currentMinutes
+        self.onConfirm = onConfirm
+        _minutes = State(initialValue: Double(currentMinutes))
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+
+                Text(stopName)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                // Big time display
+                Text("\(Int(minutes)) min")
+                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .foregroundStyle(.blue)
+
+                // Slider: 5 → 240 min, step 5
+                Slider(value: $minutes, in: 5...240, step: 5)
+                    .padding(.horizontal)
+
+                HStack {
+                    Text("5 min").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("4 hours").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+
+                // Quick-pick presets
+                HStack(spacing: 10) {
+                    ForEach([15, 30, 45, 60, 90], id: \.self) { preset in
+                        Button("\(preset)m") { minutes = Double(preset) }
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Int(minutes) == preset ? Color.blue : Color.blue.opacity(0.1))
+                            .foregroundStyle(Int(minutes) == preset ? .white : .blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    onConfirm(Int(minutes))
+                    dismiss()
+                } label: {
+                    Text("Confirm")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .padding(.horizontal)
+            }
+            .padding(.top, 24)
+            .navigationTitle("Time at Stop")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

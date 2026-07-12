@@ -32,6 +32,11 @@ struct ItineraryEntry: Identifiable {
     let travelTimeToNext: TimeInterval?   // nil for the last stop
     let distanceToNext: Double?           // metres, nil for last stop
 
+    /// Actual minutes at this stop — derived from departure/arrival gap so it reflects overrides.
+    var effectiveMinutes: Int {
+        Int(departureTime.timeIntervalSince(arrivalTime) / 60)
+    }
+
     var formattedArrival: String {
         arrivalTime.formatted(date: .omitted, time: .shortened)
     }
