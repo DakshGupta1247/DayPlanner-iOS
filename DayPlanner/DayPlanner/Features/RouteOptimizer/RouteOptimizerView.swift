@@ -3,8 +3,11 @@
 //  DayPlanner (PlanDay)
 //
 //  Shows the optimized route for a single DayPlan on a full-screen map.
-//  Takes a DayPlan; ViewModel wraps it in a synthetic Trip for the downstream
-//  NavigationView and ItineraryView which still accept Trip.
+//
+//  Two modes:
+//  - Normal: map + bottom card with route stats, Itinerary, Start Day buttons
+//  - Edit:   drag-to-reorder stop list (List + .onMove), Recalculate button,
+//            Cancel with discard confirmation if changes were made
 //
 
 import MapKit
@@ -22,19 +25,44 @@ struct RouteOptimizerView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             mapLayer
-            bottomCard
+            if viewModel.isEditingRoute {
+                editRouteSheet
+            } else {
+                bottomCard
+            }
+
+            // Success toast
+            if viewModel.showSuccessToast {
+                toastBanner
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+            }
         }
-        .navigationTitle("Optimized Route")
+        .navigationTitle(viewModel.isEditingRoute ? "Edit Route" : "Optimized Route")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { Task { await viewModel.calculateRoute() } } label: {
-                    Image(systemName: "arrow.clockwise")
+                if viewModel.isEditingRoute {
+                    Button("Cancel") { viewModel.requestCancelEdit() }
+                        .foregroundStyle(.red)
+                } else {
+                    Button { Task { await viewModel.calculateRoute() } } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(viewModel.isLoading)
                 }
-                .disabled(viewModel.isLoading)
             }
         }
         .task { await viewModel.calculateRoute() }
+        .animation(.easeInOut(duration: 0.35), value: viewModel.isEditingRoute)
+        .animation(.spring(response: 0.4), value: viewModel.showSuccessToast)
+        // Discard confirmation
+        .alert("Discard Changes?", isPresented: $viewModel.showDiscardAlert) {
+            Button("Keep Editing", role: .cancel) { viewModel.showDiscardAlert = false }
+            Button("Discard", role: .destructive) { viewModel.discardEdits() }
+        } message: {
+            Text("Your reordered stops will not be saved.")
+        }
     }
 
     // MARK: - Map
@@ -42,32 +70,34 @@ struct RouteOptimizerView: View {
     @ViewBuilder
     private var mapLayer: some View {
         Map(position: $viewModel.cameraPosition) {
+            let stops: [Stop] = {
+                if viewModel.isEditingRoute {
+                    return viewModel.reorderedStops
+                } else if case .success(let route) = viewModel.routeState {
+                    return route.orderedStops
+                }
+                return viewModel.dayPlan.stops
+            }()
 
-            if case .success(let route) = viewModel.routeState {
+            // Polylines only in normal success state
+            if !viewModel.isEditingRoute, case .success(let route) = viewModel.routeState {
                 ForEach(Array(route.legs.enumerated()), id: \.offset) { _, leg in
                     MapPolyline(leg.polyline).stroke(.blue, lineWidth: 4)
                 }
-                ForEach(Array(route.orderedStops.enumerated()), id: \.element.id) { index, stop in
-                    Annotation("", coordinate: stop.coordinate) {
-                        RouteStopPin(number: index + 1,
-                                     isFirst: index == 0,
-                                     isLast: index == route.orderedStops.count - 1)
-                    }
-                }
-            } else {
-                ForEach(Array(viewModel.dayPlan.stops.enumerated()), id: \.element.id) { index, stop in
-                    Annotation("", coordinate: stop.coordinate) {
-                        RouteStopPin(number: index + 1,
-                                     isFirst: index == 0,
-                                     isLast: index == viewModel.dayPlan.stops.count - 1)
-                    }
+            }
+
+            ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
+                Annotation("", coordinate: stop.coordinate) {
+                    RouteStopPin(number: index + 1,
+                                 isFirst: index == 0,
+                                 isLast: index == stops.count - 1)
                 }
             }
         }
         .ignoresSafeArea()
     }
 
-    // MARK: - Bottom card
+    // MARK: - Bottom card (normal mode)
 
     @ViewBuilder
     private var bottomCard: some View {
@@ -75,9 +105,165 @@ struct RouteOptimizerView: View {
         case .idle:       EmptyView()
         case .loading:    LoadingCard()
         case .success(let route):
-            RouteSuccessCard(route: route, trip: viewModel.trip)
+            RouteSuccessCard(route: route, trip: viewModel.trip) {
+                viewModel.enterEditMode()
+            }
         case .failure(let msg):
             ErrorCard(message: msg) { Task { await viewModel.calculateRoute() } }
+        }
+    }
+
+    // MARK: - Edit route sheet
+
+    private var editRouteSheet: some View {
+        VStack(spacing: 0) {
+            // Pill handle
+            RoundedRectangle(cornerRadius: 3)
+                .fill(.secondary.opacity(0.4))
+                .frame(width: 44, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+
+            HStack {
+                Text("Drag to reorder stops")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text("\(viewModel.reorderedStops.count) stops")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            // Draggable stop list
+            List {
+                ForEach(Array(viewModel.reorderedStops.enumerated()), id: \.element.id) { index, stop in
+                    DraggableStopRow(
+                        number: index + 1,
+                        stop: stop,
+                        isFirst: index == 0,
+                        isLast: index == viewModel.reorderedStops.count - 1
+                    )
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color(.systemBackground))
+                }
+                .onMove { source, destination in
+                    viewModel.moveStop(from: source, to: destination)
+                }
+            }
+            .listStyle(.plain)
+            .environment(\.editMode, .constant(.active))
+            .frame(maxHeight: 320)
+
+            Divider()
+
+            // Recalculate button
+            Button {
+                Task { await viewModel.recalculateWithUserOrder() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.subheadline.bold())
+                    Text("Recalculate Route")
+                        .font(.headline)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(viewModel.hasUserReordered
+                             ? Color(red: 0.145, green: 0.392, blue: 0.922) // #2563EB
+                             : Color.gray.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .animation(.easeInOut(duration: 0.2), value: viewModel.hasUserReordered)
+            }
+            .disabled(!viewModel.hasUserReordered || viewModel.isLoading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: -4)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 16)
+    }
+
+    // MARK: - Toast
+
+    private var toastBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text("Route updated based on your preferences")
+                .font(.subheadline.bold())
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+    }
+}
+
+// MARK: - Draggable Stop Row
+
+private struct DraggableStopRow: View {
+    let number: Int
+    let stop: Stop
+    let isFirst: Bool
+    let isLast: Bool
+
+    private var isLocked: Bool { isFirst || isLast }
+    private var pinColor: Color { isFirst ? .green : isLast ? .red : .blue }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Drag handle — hidden for first/last (locked)
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(isLocked ? Color.clear : Color.secondary.opacity(0.6))
+                .frame(width: 24)
+
+            // Number badge
+            ZStack {
+                Circle()
+                    .fill(isLocked ? Color.gray.opacity(0.25) : pinColor.opacity(0.15))
+                    .frame(width: 32, height: 32)
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(number)")
+                        .font(.caption.bold())
+                        .foregroundStyle(pinColor)
+                }
+            }
+
+            // Stop info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(stop.name)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(isLocked ? .secondary : .primary)
+                    .lineLimit(1)
+                Text(stop.address)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            // Duration
+            Text("\(stop.minutesToSpend) min")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -123,10 +309,10 @@ private struct LoadingCard: View {
 private struct RouteSuccessCard: View {
     let route: ComputedRoute
     let trip: Trip
+    let onEditTapped: () -> Void
 
     @State private var showingItinerary  = false
     @State private var showingNavigation = false
-
     @State private var showPullHint = true
 
     var body: some View {
@@ -157,18 +343,30 @@ private struct RouteSuccessCard: View {
 
                 // Stats
                 HStack(spacing: 0) {
-                    StatCell(value: route.formattedDistance,   label: "Distance",  symbol: "road.lanes",       color: .blue)
+                    StatCell(value: route.formattedDistance,      label: "Distance",    symbol: "road.lanes",         color: .blue)
                     Divider().frame(height: 40)
-                    StatCell(value: route.formattedTravelTime, label: "Travel time", symbol: "car.fill",         color: .orange)
+                    StatCell(value: route.formattedTravelTime,    label: "Travel time", symbol: "car.fill",           color: .orange)
                     Divider().frame(height: 40)
-                    StatCell(value: "\(route.orderedStops.count)", label: "Stops",  symbol: "mappin.circle.fill", color: .green)
+                    StatCell(value: "\(route.orderedStops.count)", label: "Stops",      symbol: "mappin.circle.fill", color: .green)
                 }
 
                 Divider()
 
-                // Ordered stop list
-                Text("Optimized order")
-                    .font(.caption.bold()).foregroundStyle(.secondary).textCase(.uppercase)
+                // Header row with Edit button
+                HStack {
+                    Text("Optimized order")
+                        .font(.caption.bold()).foregroundStyle(.secondary).textCase(.uppercase)
+                    Spacer()
+                    Button(action: onEditTapped) {
+                        Label("Edit", systemImage: "pencil")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.blue.opacity(0.1))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                    }
+                }
 
                 VStack(spacing: 8) {
                     ForEach(Array(route.orderedStops.enumerated()), id: \.element.id) { i, stop in
