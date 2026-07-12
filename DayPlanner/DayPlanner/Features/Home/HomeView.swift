@@ -16,6 +16,8 @@ struct HomeView: View {
 
     @State private var viewModel = HomeViewModel()
     @State private var showingSettings = false
+    @State private var showingProfiles = false
+    @State private var profileService = ProfileService.shared
 
     var body: some View {
         NavigationStack {
@@ -67,6 +69,12 @@ struct HomeView: View {
                 .navigationTitle("PlanDay")
                 .navigationBarTitleDisplayMode(.large)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        // Profile avatar button — shows initials of the active profile
+                        Button { showingProfiles = true } label: {
+                            ProfileAvatarButton(profile: profileService.activeProfile)
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showingSettings = true } label: {
                             Image(systemName: "gearshape")
@@ -74,12 +82,18 @@ struct HomeView: View {
                     }
                 }
                 .onAppear { viewModel.reload() }
+                // Reload plans whenever the active profile changes
+                .onChange(of: profileService.activeProfile?.id) { viewModel.reload() }
 
                 // — FAB overlay —
                 FABMenu(viewModel: viewModel)
                     .padding(.trailing, 20)
                     .padding(.bottom, 32)
             }
+        }
+        .sheet(isPresented: $showingProfiles) {
+            ProfileSwitcherView()
+                .onDisappear { viewModel.reload() }
         }
         .sheet(isPresented: $showingSettings) { SettingsView() }
         .sheet(isPresented: $viewModel.showingDayPlanBuilder) {
@@ -96,11 +110,15 @@ struct HomeView: View {
 private struct GreetingHeader: View {
     let greeting: String
     let date: String
-    @AppStorage("userName") private var userName = "there"
+    @State private var profileService = ProfileService.shared
+
+    private var displayName: String {
+        profileService.activeProfile?.name ?? "there"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(greeting), \(userName)!")
+            Text("\(greeting), \(displayName)!")
                 .font(.title2.bold())
             Text(date)
                 .font(.subheadline)
@@ -255,7 +273,7 @@ private struct TripCard: View {
                 // Emoji + color blob
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(hex: trip.coverColor).opacity(0.2))
+                        .fill(Color.hex( trip.coverColor).opacity(0.2))
                         .frame(width: 44, height: 44)
                     Text(trip.emoji).font(.title2)
                 }
@@ -292,18 +310,18 @@ private struct TripCard: View {
                     .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(Color(hex: trip.coverColor).opacity(0.15))
-                    .foregroundStyle(Color(hex: trip.coverColor))
+                    .background(Color.hex( trip.coverColor).opacity(0.15))
+                    .foregroundStyle(Color.hex( trip.coverColor))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(16)
-        .background(isHighlighted ? AnyShapeStyle(Color(hex: trip.coverColor).opacity(0.07)) : AnyShapeStyle(.regularMaterial))
+        .background(isHighlighted ? AnyShapeStyle(Color.hex( trip.coverColor).opacity(0.07)) : AnyShapeStyle(.regularMaterial))
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .shadow(color: .black.opacity(isHighlighted ? 0.10 : 0.06), radius: 10, y: 3)
         .overlay(
             isHighlighted
-                ? RoundedRectangle(cornerRadius: 18).stroke(Color(hex: trip.coverColor).opacity(0.3), lineWidth: 1.5)
+                ? RoundedRectangle(cornerRadius: 18).stroke(Color.hex( trip.coverColor).opacity(0.3), lineWidth: 1.5)
                 : nil
         )
         .navigationDestination(isPresented: $showingDetail) {
@@ -448,17 +466,25 @@ private struct FABOption: View {
     }
 }
 
-// MARK: - Color(hex:) extension
 
-extension Color {
-    init(hex: String) {
-        let h = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        var rgb: UInt64 = 0
-        Scanner(string: h).scanHexInt64(&rgb)
-        let r = Double((rgb >> 16) & 0xFF) / 255
-        let g = Double((rgb >>  8) & 0xFF) / 255
-        let b = Double( rgb        & 0xFF) / 255
-        self.init(red: r, green: g, blue: b)
+// MARK: - Profile Avatar Button
+
+private struct ProfileAvatarButton: View {
+    let profile: UserProfile?
+
+    private var color: Color {
+        Color.hex( profile?.accentColor.hexValue ?? "#3B82F6")
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.2))
+                .frame(width: 32, height: 32)
+            Text(profile?.initials ?? "?")
+                .font(.caption.bold())
+                .foregroundStyle(color)
+        }
     }
 }
 

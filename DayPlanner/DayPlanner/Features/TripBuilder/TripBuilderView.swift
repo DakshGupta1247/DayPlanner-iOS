@@ -305,12 +305,12 @@ private struct TripMetadataForm: View {
                     ForEach(colors, id: \.self) { hex in
                         Button { viewModel.coverColor = hex } label: {
                             Circle()
-                                .fill(Color(hex: hex))
+                                .fill(Color.hex( hex))
                                 .frame(width: 32, height: 32)
                                 .overlay(viewModel.coverColor == hex
                                          ? Circle().stroke(.white, lineWidth: 3)
                                          : nil)
-                                .shadow(color: Color(hex: hex).opacity(0.4), radius: 4)
+                                .shadow(color: Color.hex( hex).opacity(0.4), radius: 4)
                         }
                     }
                     Spacer()

@@ -46,7 +46,7 @@ private struct TripHeader: View {
         HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(hex: trip.coverColor).opacity(0.15))
+                    .fill(Color.hex( trip.coverColor).opacity(0.15))
                     .frame(width: 60, height: 60)
                 Text(trip.emoji).font(.largeTitle)
             }
@@ -58,7 +58,7 @@ private struct TripHeader: View {
             Spacer()
         }
         .padding(16)
-        .background(Color(hex: trip.coverColor).opacity(0.07))
+        .background(Color.hex( trip.coverColor).opacity(0.07))
         .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
