@@ -22,8 +22,7 @@ struct ProfileSwitcherView: View {
     @Environment(\.dismiss) private var dismiss
 
     // New profile creation
-    @State private var showingAddAlert  = false
-    @State private var newProfileName   = ""
+    @State private var showingAddSheet  = false
 
     // Rename
     @State private var profileToRename: UserProfile? = nil
@@ -73,8 +72,7 @@ struct ProfileSwitcherView: View {
                 // Add Profile row — greyed out when at max
                 if profileService.profiles.count < ProfileService.maxProfiles {
                     Button {
-                        newProfileName = ""
-                        showingAddAlert = true
+                        showingAddSheet = true
                     } label: {
                         Label("Add Profile", systemImage: "plus.circle.fill")
                             .foregroundStyle(.blue)
@@ -94,17 +92,12 @@ struct ProfileSwitcherView: View {
                         .bold()
                 }
             }
-            // Add profile alert
-            .alert("New Profile", isPresented: $showingAddAlert) {
-                TextField("Name", text: $newProfileName)
-                    .autocorrectionDisabled()
-                Button("Create") {
-                    profileService.createProfile(name: newProfileName)
-                    dismiss()   // new profile is now active, go back home
+            // Add profile sheet
+            .sheet(isPresented: $showingAddSheet) {
+                AddProfileSheet { name, symbol, color in
+                    profileService.createProfile(name: name, avatarSymbol: symbol, avatarColor: color)
+                    dismiss()
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Enter a name for the new profile.")
             }
             // Rename alert
             .alert("Rename Profile", isPresented: Binding(
@@ -133,18 +126,18 @@ private struct ProfileRow: View {
     let profile: UserProfile
     let isActive: Bool
 
-    private var color: Color { Color.hex( profile.accentColor.hexValue) }
+    private var color: Color { Color.hex(profile.avatarColor) }
 
     var body: some View {
         HStack(spacing: 14) {
 
-            // Avatar circle with initials
+            // Avatar circle with SF Symbol
             ZStack {
                 Circle()
                     .fill(color.opacity(0.2))
                     .frame(width: 44, height: 44)
-                Text(profile.initials)
-                    .font(.subheadline.bold())
+                Image(systemName: profile.avatarSymbol)
+                    .font(.title3)
                     .foregroundStyle(color)
             }
 

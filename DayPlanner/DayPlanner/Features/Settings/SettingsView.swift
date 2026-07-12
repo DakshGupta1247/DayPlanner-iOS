@@ -52,12 +52,12 @@ struct SettingsView: View {
                     Button { showingProfiles = true } label: {
                         HStack(spacing: 14) {
                             // Avatar
-                            let color = Color.hex( profileService.activeProfile?.accentColor.hexValue ?? "#3B82F6")
+                            let color = Color.hex(profileService.activeProfile?.avatarColor ?? "#3B82F6")
                             ZStack {
                                 Circle()
                                     .fill(color.opacity(0.2))
                                     .frame(width: 48, height: 48)
-                                Text(profileService.activeProfile?.initials ?? "?")
+                                Image(systemName: profileService.activeProfile?.avatarSymbol ?? "person.fill")
                                     .font(.title3.bold())
                                     .foregroundStyle(color)
                             }

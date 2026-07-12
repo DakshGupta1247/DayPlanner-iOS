@@ -51,8 +51,8 @@ struct WelcomeScreenView: View {
 
     var body: some View {
         if navigateToHome {
-            // Hand off to HomeView with a slide-up transition.
-            HomeView()
+            // Hand off to profile creation with a slide-up transition.
+            ProfileCreationView()
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         } else {
             welcomeContent

@@ -54,11 +54,11 @@ final class ProfileService {
 
     /// Creates a new profile and activates it. Returns false if at max capacity.
     @discardableResult
-    func createProfile(name: String) -> Bool {
+    func createProfile(name: String, avatarSymbol: String = "person.fill", avatarColor: String = "#3B82F6") -> Bool {
         guard profiles.count < ProfileService.maxProfiles else { return false }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
-        let profile = UserProfile(name: trimmed)
+        let profile = UserProfile(name: trimmed, avatarSymbol: avatarSymbol, avatarColor: avatarColor)
         profiles.append(profile)
         activeProfile = profile
         persist()
