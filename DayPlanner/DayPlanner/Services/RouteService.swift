@@ -49,10 +49,19 @@ struct ComputedRoute {
 actor RouteService {
 
     /// Computes optimized route for a DayPlan.
-    func computeRoute(for dayPlan: DayPlan) async throws -> ComputedRoute {
+    /// - Parameter userDefinedOrder: When true, keeps stops in the exact provided order
+    ///   and only recalculates travel times/distances. When false (default), runs full
+    ///   nearest-neighbour optimisation to find the most efficient order.
+    func computeRoute(for dayPlan: DayPlan, userDefinedOrder: Bool = false) async throws -> ComputedRoute {
         guard dayPlan.stops.count >= 2 else { throw RouteError.notEnoughStops }
-        let optimized = nearestNeighborOrder(stops: dayPlan.stops)
-        return try await buildRoute(orderedStops: optimized, travelMode: dayPlan.travelMode)
+        let ordered = userDefinedOrder ? dayPlan.stops : nearestNeighborOrder(stops: dayPlan.stops)
+        return try await buildRoute(orderedStops: ordered, travelMode: dayPlan.travelMode)
+    }
+
+    /// Computes a route for an explicit ordered stop list, respecting the user's sequence.
+    func computeRoute(orderedStops: [Stop], travelMode: TravelMode) async throws -> ComputedRoute {
+        guard orderedStops.count >= 2 else { throw RouteError.notEnoughStops }
+        return try await buildRoute(orderedStops: orderedStops, travelMode: travelMode)
     }
 
     /// Convenience: routes the stops of a Trip (all days combined) for legacy callers.
