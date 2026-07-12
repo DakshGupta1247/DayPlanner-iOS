@@ -4,8 +4,8 @@
 //
 //  Multi-day trip builder sheet.
 //  Step 1: Trip name, emoji, cover color.
-//  Step 2: Start date, number of days.
-//  Step 3: Add stops per day using the day tab bar.
+//  Step 2: Add stops per day using the day tab bar.
+//  Supports create mode (default init) and edit mode (init(editing:)).
 //
 
 import MapKit
@@ -22,8 +22,16 @@ struct TripBuilderView: View {
     // Builder step: 0 = metadata, 1 = stops
     @State private var currentStep = 0
 
+    // MARK: - Create mode
     init(onConfirmed: @escaping (Trip) -> Void) {
         let vm = TripBuilderViewModel()
+        vm.onConfirmed = onConfirmed
+        _viewModel = State(initialValue: vm)
+    }
+
+    // MARK: - Edit mode
+    init(editing trip: Trip, onConfirmed: @escaping (Trip) -> Void) {
+        let vm = TripBuilderViewModel(editing: trip)
         vm.onConfirmed = onConfirmed
         _viewModel = State(initialValue: vm)
     }
@@ -84,7 +92,9 @@ struct TripBuilderView: View {
                 bottomBar
                     .padding(16)
             }
-            .navigationTitle(currentStep == 0 ? "New Trip" : "Add Stops")
+            .navigationTitle(currentStep == 0
+                             ? (viewModel.isEditing ? "Edit Trip" : "New Trip")
+                             : "Add Stops")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -212,7 +222,9 @@ struct TripBuilderView: View {
                         viewModel.confirm()
                         dismiss()
                     } label: {
-                        Text(viewModel.canConfirm ? "Create Trip" : "Add stops to each day")
+                        Text(viewModel.canConfirm
+                             ? (viewModel.isEditing ? "Save Changes" : "Create Trip")
+                             : "Add stops to each day")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding()

@@ -4,6 +4,7 @@
 //
 //  Single-day plan builder sheet.
 //  User picks a date, searches for stops, then confirms.
+//  Supports create mode (default init) and edit mode (init(editing:)).
 //
 
 import MapKit
@@ -17,8 +18,16 @@ struct DayPlanBuilderView: View {
     @FocusState private var isSearchFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
+    // MARK: - Create mode
     init(onConfirmed: @escaping (DayPlan) -> Void) {
         let vm = DayPlanBuilderViewModel()
+        vm.onConfirmed = onConfirmed
+        _viewModel = State(initialValue: vm)
+    }
+
+    // MARK: - Edit mode
+    init(editing plan: DayPlan, onConfirmed: @escaping (DayPlan) -> Void) {
+        let vm = DayPlanBuilderViewModel(editing: plan)
         vm.onConfirmed = onConfirmed
         _viewModel = State(initialValue: vm)
     }
@@ -68,7 +77,9 @@ struct DayPlanBuilderView: View {
                         viewModel.confirm()
                         dismiss()
                     } label: {
-                        Text(viewModel.canConfirm ? "Create Day Plan" : "Add at least one stop")
+                        Text(viewModel.canConfirm
+                             ? (viewModel.isEditing ? "Save Changes" : "Create Day Plan")
+                             : "Add at least one stop")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -80,7 +91,7 @@ struct DayPlanBuilderView: View {
                 }
                 .padding(16)
             }
-            .navigationTitle("Plan a Day")
+            .navigationTitle(viewModel.isEditing ? "Edit Day Plan" : "Plan a Day")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
