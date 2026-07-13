@@ -155,19 +155,15 @@ final class LiveNavigationViewModel {
 
     private func beginObservingLocation() {
         trackingTask?.cancel()
+        // Consume trustedLocationStream directly — fires on every fix from both
+        // LocationService (real GPS) and GPXReplayProvider (replay).
+        // The old withObservationTracking approach only fired once per observation
+        // cycle which caused arrival detection to miss most GPX fixes.
         trackingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = self.locationService.currentLocation
-                    } onChange: {
-                        continuation.resume()
-                    }
-                }
-                if let location = self.locationService.currentLocation {
-                    await self.handleLocationUpdate(location)
-                }
+            guard let self else { return }
+            for await location in self.locationService.trustedLocationStream {
+                guard !Task.isCancelled else { break }
+                await self.handleLocationUpdate(location)
             }
         }
     }
