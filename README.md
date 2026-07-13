@@ -4,6 +4,20 @@ A smart personal day-trip planner built with SwiftUI and MapKit.
 
 Plan a day visiting multiple places → get a GPS-aware optimised route → follow a live itinerary → navigate stop by stop.
 
+---
+
+## Demo Videos
+
+| # | Video | Duration |
+|---|---|---|
+| 1 | [User Onboarding](https://github.com/DakshGupta1247/DayPlanner-iOS/releases/download/v1.0-demo/01-user-onboarding.mp4) | 1 min 7s |
+| 2 | [GPX Live Navigation Demo](https://github.com/DakshGupta1247/DayPlanner-iOS/releases/download/v1.0-demo/02-gpx-live-demo.mp4) | 5 min 15s |
+| 3 | [Day Plan Setup](https://github.com/DakshGupta1247/DayPlanner-iOS/releases/download/v1.0-demo/03-day-plan-setup.mp4) | 2 min 41s |
+
+> Click each link to download and view. All videos recorded on iPad (1488×2266).
+
+---
+
 ## Tech Stack
 
 | Technology | Usage |
