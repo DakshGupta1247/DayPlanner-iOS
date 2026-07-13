@@ -17,7 +17,7 @@ enum AppEnvironment {
     /// The shared location provider for the current build configuration.
     static let locationProvider: LocationProviding = {
         #if DEBUG
-        return GPXReplayProvider(gpxFileName: "demo-route", speedMultiplier: 3.0)
+        return GPXReplayProvider(gpxFileName: "demo-route", speedMultiplier: 6.0)
         #else
         return LocationService()
         #endif
