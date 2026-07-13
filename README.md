@@ -98,6 +98,52 @@ DayPlanner/
 
 > **Live Navigation (FR9):** Full GPS tracking works best on a real device.
 
+## How to Run the GPX Demo
+
+> GPX replay only works on Simulator (DEBUG build). On a real iPhone, live GPS is used automatically instead.
+
+### Steps
+
+1. Build and run on iPhone Simulator (iPhone 15 or later recommended)
+
+2. On the Home Screen, tap the blue **"Load Delhi Demo Plan"** banner
+   → 6 Delhi landmarks load instantly
+   → Route Optimizer opens automatically
+
+3. Tap **"Optimise Route"**
+   → Stops reorder by nearest first
+   → Blue polyline appears on map
+
+4. Tap **"Start Navigation"**
+   → GPX replay begins automatically
+   → Blue dot starts moving through Delhi
+   → ETA updates every second
+   → Trust chip shows 🟢 GPS Good
+   → Stops grey out as route passes through
+
+5. Watch the full demo run by itself
+   → All 6 stops covered automatically
+   → Completion screen appears at the end
+
+### Stops in the Demo Route
+
+| # | Place | Closes |
+|---|-------|--------|
+| 1 | Connaught Place | 21:00 |
+| 2 | Red Fort | 17:30 |
+| 3 | India Gate | 22:00 |
+| 4 | Humayun's Tomb | 18:00 |
+| 5 | Lotus Temple | 17:30 |
+| 6 | Qutub Minar | 17:00 |
+
+### Debug Bypass Note
+
+The `#if DEBUG` flag in `AppEnvironment.swift` automatically switches between:
+- **Simulator** → `GPXReplayProvider` (fake GPS from `demo-route.gpx`)
+- **Real iPhone** → `LocationService` (real live GPS)
+
+No manual configuration needed.
+
 ## Git Workflow
 
 ```
