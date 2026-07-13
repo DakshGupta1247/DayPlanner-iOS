@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="PlanDay">
+  <trk>
+    <name>Demo Route — New Delhi</name>
+    <trkseg>
+      <!-- Stop 1: Connaught Place -->
+      <trkpt lat="28.6315" lon="77.2167">
+        <time>2025-01-01T09:00:00Z</time>
+        <ele>216</ele>
+      </trkpt>
+      <!-- Heading north-east toward Red Fort -->
+      <trkpt lat="28.6340" lon="77.2195">
+        <time>2025-01-01T09:00:30Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.6378" lon="77.2230">
+        <time>2025-01-01T09:01:05Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.6415" lon="77.2268">
+        <time>2025-01-01T09:01:40Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.6450" lon="77.2305">
+        <time>2025-01-01T09:02:15Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.6490" lon="77.2340">
+        <time>2025-01-01T09:02:50Z</time>
+        <ele>212</ele>
+      </trkpt>
+      <trkpt lat="28.6525" lon="77.2375">
+        <time>2025-01-01T09:03:25Z</time>
+        <ele>212</ele>
+      </trkpt>
+      <!-- Stop 2: Red Fort -->
+      <trkpt lat="28.6562" lon="77.2410">
+        <time>2025-01-01T09:04:00Z</time>
+        <ele>211</ele>
+      </trkpt>
+      <!-- Heading south toward India Gate -->
+      <trkpt lat="28.6515" lon="77.2390">
+        <time>2025-01-01T09:04:35Z</time>
+        <ele>212</ele>
+      </trkpt>
+      <trkpt lat="28.6460" lon="77.2365">
+        <time>2025-01-01T09:05:10Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.6390" lon="77.2340">
+        <time>2025-01-01T09:05:50Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.6310" lon="77.2310">
+        <time>2025-01-01T09:06:30Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.6230" lon="77.2305">
+        <time>2025-01-01T09:07:10Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.6175" lon="77.2298">
+        <time>2025-01-01T09:07:45Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <!-- Stop 3: India Gate -->
+      <trkpt lat="28.6129" lon="77.2295">
+        <time>2025-01-01T09:08:20Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <!-- Heading south-east toward Humayun's Tomb -->
+      <trkpt lat="28.6088" lon="77.2318">
+        <time>2025-01-01T09:09:00Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.6045" lon="77.2348">
+        <time>2025-01-01T09:09:40Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.6000" lon="77.2385">
+        <time>2025-01-01T09:10:20Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.5970" lon="77.2420">
+        <time>2025-01-01T09:11:00Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.5950" lon="77.2462">
+        <time>2025-01-01T09:11:40Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <!-- Stop 4: Humayun's Tomb -->
+      <trkpt lat="28.5933" lon="77.2507">
+        <time>2025-01-01T09:12:20Z</time>
+        <ele>212</ele>
+      </trkpt>
+      <!-- Heading south toward Lotus Temple -->
+      <trkpt lat="28.5880" lon="77.2545">
+        <time>2025-01-01T09:13:00Z</time>
+        <ele>212</ele>
+      </trkpt>
+      <trkpt lat="28.5820" lon="77.2568">
+        <time>2025-01-01T09:13:40Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.5760" lon="77.2580">
+        <time>2025-01-01T09:14:20Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.5690" lon="77.2585">
+        <time>2025-01-01T09:15:00Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.5620" lon="77.2586">
+        <time>2025-01-01T09:15:40Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <!-- Stop 5: Lotus Temple -->
+      <trkpt lat="28.5535" lon="77.2588">
+        <time>2025-01-01T09:16:20Z</time>
+        <ele>212</ele>
+      </trkpt>
+      <!-- Heading south-west toward Qutub Minar -->
+      <trkpt lat="28.5490" lon="77.2520">
+        <time>2025-01-01T09:17:00Z</time>
+        <ele>213</ele>
+      </trkpt>
+      <trkpt lat="28.5445" lon="77.2448">
+        <time>2025-01-01T09:17:40Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.5400" lon="77.2370">
+        <time>2025-01-01T09:18:20Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.5368" lon="77.2295">
+        <time>2025-01-01T09:19:00Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.5340" lon="77.2210">
+        <time>2025-01-01T09:19:40Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.5310" lon="77.2120">
+        <time>2025-01-01T09:20:20Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.5285" lon="77.2040">
+        <time>2025-01-01T09:21:00Z</time>
+        <ele>215</ele>
+      </trkpt>
+      <trkpt lat="28.5265" lon="77.1960">
+        <time>2025-01-01T09:21:40Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <trkpt lat="28.5252" lon="77.1905">
+        <time>2025-01-01T09:22:20Z</time>
+        <ele>214</ele>
+      </trkpt>
+      <!-- Stop 6: Qutub Minar -->
+      <trkpt lat="28.5244" lon="77.1855">
+        <time>2025-01-01T09:23:00Z</time>
+        <ele>214</ele>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

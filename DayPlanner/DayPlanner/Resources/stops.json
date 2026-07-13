@@ -4,5 +4,7 @@
   {"id":"3","name":"Humayun's Tomb","coordinate":{"lat":28.5933,"lng":77.2507},"openUntil":"18:00"},
   {"id":"4","name":"Qutub Minar","coordinate":{"lat":28.5244,"lng":77.1855},"openUntil":"17:00"},
   {"id":"5","name":"Lotus Temple","coordinate":{"lat":28.5535,"lng":77.2588},"openUntil":"17:30"},
-  {"id":"6","name":"Red Fort","coordinate":{"lat":28.6562,"lng":77.2410},"openUntil":"17:30"}
+  {"id":"6","name":"Red Fort","coordinate":{"lat":28.6562,"lng":77.2410},"openUntil":"17:30"},
+  {"id":"7","name":"Connaught Place (Inner Circle)","coordinate":{"lat":28.6315,"lng":77.2167},"openUntil":"23:00"},
+  {"id":"8","name":"Agra (Taj Mahal)","coordinate":{"lat":27.1751,"lng":78.0421},"openUntil":"18:00"}
 ]

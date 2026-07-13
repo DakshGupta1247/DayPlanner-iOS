@@ -50,7 +50,7 @@ final class RouteOptimizerViewModel {
 
     // MARK: - GPS
 
-    let locationService = LocationService()
+    let locationService: LocationProviding
     /// True when GPS is unavailable / denied — drives the info banner in the view
     var showGPSUnavailableBanner = false
 
@@ -73,8 +73,9 @@ final class RouteOptimizerViewModel {
 
     private let routeService = RouteService()
 
-    init(dayPlan: DayPlan) {
+    init(dayPlan: DayPlan, locationProvider: LocationProviding = AppEnvironment.locationProvider) {
         self.dayPlan = dayPlan
+        self.locationService = locationProvider
         self.trip = Trip(id: dayPlan.id, name: dayPlan.name,
                          date: dayPlan.date, stops: dayPlan.stops,
                          travelMode: dayPlan.travelMode)
@@ -137,7 +138,7 @@ final class RouteOptimizerViewModel {
             return
         }
 
-        if locationService.authorizationStatus == .notDetermined {
+        if !locationService.isAuthorized && !locationService.isDenied {
             locationService.requestPermission()
             // Give the system dialog time to appear and for user to respond
             try? await Task.sleep(nanoseconds: 800_000_000)

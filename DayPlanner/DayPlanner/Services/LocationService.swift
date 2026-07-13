@@ -12,7 +12,7 @@ import Observation
 
 @Observable
 @MainActor
-final class LocationService: NSObject {
+final class LocationService: NSObject, LocationProviding {
 
     // The user's most recent raw GPS position — nil until the first location fix
     var currentLocation: CLLocation? = nil

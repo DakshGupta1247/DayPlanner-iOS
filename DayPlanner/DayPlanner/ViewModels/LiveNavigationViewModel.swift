@@ -47,7 +47,7 @@ final class LiveNavigationViewModel {
     var stops: [Stop]
 
     // MARK: - Location
-    let locationService = LocationService()
+    let locationService: LocationProviding
 
     var livePolyline: MKPolyline? = nil
 
@@ -82,10 +82,11 @@ final class LiveNavigationViewModel {
 
     private let navigationService = NavigationService()
 
-    init(trip: Trip, route: ComputedRoute) {
+    init(trip: Trip, route: ComputedRoute, locationProvider: LocationProviding = AppEnvironment.locationProvider) {
         self.trip = trip
         self.route = route
         self.stops = route.orderedStops
+        self.locationService = locationProvider
     }
 
     // MARK: - Computed
