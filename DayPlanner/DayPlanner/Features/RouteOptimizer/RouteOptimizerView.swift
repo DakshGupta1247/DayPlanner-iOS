@@ -447,7 +447,7 @@ private struct RouteSuccessCard: View {
                     ItineraryView(trip: trip, route: route)
                 }
                 .navigationDestination(isPresented: $showingNavigation) {
-                    NavigationView(trip: trip, route: route)
+                    LiveNavigationView(trip: trip, route: route)
                 }
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
