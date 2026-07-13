@@ -155,33 +155,30 @@ final class LiveNavigationViewModel {
 
     private func beginObservingLocation() {
         trackingTask?.cancel()
-        // Consume trustedLocationStream directly — fires on every fix from both
-        // LocationService (real GPS) and GPXReplayProvider (replay).
-        // The old withObservationTracking approach only fired once per observation
-        // cycle which caused arrival detection to miss most GPX fixes.
+        // Single consumer of trustedLocationStream — handles both arrival detection
+        // and ETA updates in one loop. AsyncStream only supports one active consumer;
+        // having two separate tasks (tracking + breadcrumb) caused one to starve the
+        // other, meaning arrival detection missed most GPX fixes.
         trackingTask = Task { [weak self] in
             guard let self else { return }
             for await location in self.locationService.trustedLocationStream {
                 guard !Task.isCancelled else { break }
+                // ETA update (was previously in breadcrumbTask)
+                await MainActor.run {
+                    self.etaEngine.update(newLocation: location)
+                    self.refreshSpeedETA(from: location)
+                }
+                // Arrival detection + camera + route recalc
                 await self.handleLocationUpdate(location)
             }
         }
     }
 
-    // MARK: - Breadcrumb loop
+    // MARK: - Breadcrumb loop (merged into beginObservingLocation above)
 
     private func beginBreadcrumbTracking() {
-        breadcrumbTask?.cancel()
-        breadcrumbTask = Task { [weak self] in
-            guard let self else { return }
-            for await location in self.locationService.trustedLocationStream {
-                guard !Task.isCancelled else { break }
-                await MainActor.run {
-                    self.etaEngine.update(newLocation: location)
-                    self.refreshSpeedETA(from: location)
-                }
-            }
-        }
+        // No-op — breadcrumb tracking is now handled in the single stream consumer
+        // inside beginObservingLocation() to avoid dual-consumer stream starvation.
     }
 
     private func startETATimer() {
@@ -216,7 +213,7 @@ final class LiveNavigationViewModel {
             let stopLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
             let distanceToStop = location.distance(from: stopLocation)
 
-            if distanceToStop < 25,
+            if distanceToStop < 100,
                !showingArrivalBanner,
                !crossedStopIDs.contains(stop.id) {
                 crossedStopIDs.insert(stop.id)
