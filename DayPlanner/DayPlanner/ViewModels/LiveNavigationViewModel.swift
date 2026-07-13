@@ -69,6 +69,10 @@ final class LiveNavigationViewModel {
     // MARK: - Arrival banner
     var showingArrivalBanner = false
 
+    // MARK: - Destination updated toast
+    var destinationToast: String? = nil
+    private var toastClearTask: Task<Void, Never>? = nil
+
     // MARK: - Day Complete
     var isDayComplete = false
     var daySummary: DaySummary? = nil
@@ -76,9 +80,14 @@ final class LiveNavigationViewModel {
 
     // MARK: - Off-route recalculation debounce
     private var lastRouteCalcLocation: CLLocation? = nil
+    // Generation counter — incremented each time we advance to a new stop.
+    // Prevents a stale in-flight MKDirections response from overwriting fresh state.
+    private var routeCalcGeneration = 0
+    private var routeCalcInFlight = false
 
     private var trackingTask: Task<Void, Never>? = nil
     private var breadcrumbTask: Task<Void, Never>? = nil
+    private var routeCalcTask: Task<Void, Never>? = nil
 
     private let navigationService = NavigationService()
 
@@ -104,6 +113,13 @@ final class LiveNavigationViewModel {
 
     var completedStops: [Stop] { Array(stops.prefix(currentStopIndex)) }
     var remainingStops: [Stop] { Array(stops.dropFirst(currentStopIndex)) }
+
+    var completedCount: Int { currentStopIndex }
+    var totalCount: Int { stops.count }
+    var progressFraction: Double {
+        guard stops.count > 0 else { return 0 }
+        return Double(currentStopIndex) / Double(stops.count)
+    }
 
     var formattedETA: String {
         if let road = etaSeconds {
@@ -148,7 +164,9 @@ final class LiveNavigationViewModel {
         locationService.stopTracking()
         trackingTask?.cancel(); trackingTask = nil
         breadcrumbTask?.cancel(); breadcrumbTask = nil
+        routeCalcTask?.cancel(); routeCalcTask = nil
         etaTimer?.invalidate(); etaTimer = nil
+        toastClearTask?.cancel(); toastClearTask = nil
     }
 
     // MARK: - Location observation loop
@@ -159,17 +177,13 @@ final class LiveNavigationViewModel {
         // and ETA updates in one loop. AsyncStream only supports one active consumer;
         // having two separate tasks (tracking + breadcrumb) caused one to starve the
         // other, meaning arrival detection missed most GPX fixes.
-        trackingTask = Task { [weak self] in
+        trackingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             for await location in self.locationService.trustedLocationStream {
                 guard !Task.isCancelled else { break }
-                // ETA update (was previously in breadcrumbTask)
-                await MainActor.run {
-                    self.etaEngine.update(newLocation: location)
-                    self.refreshSpeedETA(from: location)
-                }
-                // Arrival detection + camera + route recalc
-                await self.handleLocationUpdate(location)
+                self.etaEngine.update(newLocation: location)
+                self.refreshSpeedETA(from: location)
+                self.handleLocationUpdate(location)
             }
         }
     }
@@ -201,7 +215,8 @@ final class LiveNavigationViewModel {
 
     // MARK: - Handle each GPS update
 
-    private func handleLocationUpdate(_ location: CLLocation) async {
+    private func handleLocationUpdate(_ location: CLLocation) {
+        // Camera update — synchronous, no await needed
         cameraPosition = .camera(MapCamera(
             centerCoordinate: location.coordinate,
             distance: 800,
@@ -209,6 +224,7 @@ final class LiveNavigationViewModel {
             pitch: 45
         ))
 
+        // Arrival detection
         if let stop = currentStop {
             let stopLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
             let distanceToStop = location.distance(from: stopLocation)
@@ -221,40 +237,56 @@ final class LiveNavigationViewModel {
             }
         }
 
+        // Route recalculation — only start a new request when we've moved enough
+        // AND no request is already in flight. Never cancel an active MKDirections
+        // call mid-flight — it would prevent the polyline from ever appearing.
         let shouldRecalculate: Bool
         if let lastCalc = lastRouteCalcLocation {
-            shouldRecalculate = location.distance(from: lastCalc) > 50
+            shouldRecalculate = location.distance(from: lastCalc) > 150
         } else {
             shouldRecalculate = true
         }
 
-        if shouldRecalculate {
+        if shouldRecalculate && !routeCalcInFlight {
             lastRouteCalcLocation = location
-            await recalculateRouteFromCurrentLocation(location)
+            let generation = routeCalcGeneration
+            routeCalcInFlight = true
+            routeCalcTask = Task { [weak self] in
+                await self?.recalculateRoute(from: location, generation: generation)
+                await MainActor.run { [weak self] in
+                    self?.routeCalcInFlight = false
+                    self?.routeCalcTask = nil
+                }
+            }
         }
     }
 
     // MARK: - Live route calculation
 
-    private func recalculateRouteFromCurrentLocation(_ location: CLLocation) async {
+    private func recalculateRoute(from location: CLLocation, generation: Int) async {
         guard let stop = currentStop else { return }
         etaIsLoading = true
-        let fromItem = MKMapItem(location: location, address: nil)
-        let toLocation = CLLocation(latitude: stop.latitude, longitude: stop.longitude)
-        let toItem = MKMapItem(location: toLocation, address: nil)
+        let transportType = trip.travelMode.mkTransportType
+        let destCoord = CLLocationCoordinate2D(latitude: stop.latitude, longitude: stop.longitude)
+        let fromItem = MKMapItem(placemark: MKPlacemark(coordinate: location.coordinate))
+        let toItem = MKMapItem(placemark: MKPlacemark(coordinate: destCoord))
         let request = MKDirections.Request()
         request.source = fromItem
         request.destination = toItem
-        request.transportType = trip.travelMode.mkTransportType
+        request.transportType = transportType
         request.requestsAlternateRoutes = false
         do {
             let response = try await MKDirections(request: request).calculate()
+            // Discard result if we've already advanced to a new stop
+            guard generation == routeCalcGeneration else { return }
             if let best = response.routes.first {
                 livePolyline = best.polyline
                 etaSeconds   = best.expectedTravelTime
             }
         } catch { }
-        etaIsLoading = false
+        if generation == routeCalcGeneration {
+            etaIsLoading = false
+        }
     }
 
     // MARK: - Intents
@@ -262,13 +294,33 @@ final class LiveNavigationViewModel {
     func markCurrentStopArrived() {
         guard currentStopIndex < stops.count else { return }
         currentStopIndex += 1
+        routeCalcGeneration += 1   // invalidate any in-flight MKDirections response
+        routeCalcTask?.cancel(); routeCalcTask = nil
+        routeCalcInFlight = false
         showingArrivalBanner = false
         livePolyline = nil
         etaSeconds = nil
         etaResult = nil
+        etaIsLoading = false
         lastRouteCalcLocation = nil
         etaEngine.reset()
+        showDestinationToast()
         checkIfDayComplete()
+    }
+
+    private func showDestinationToast() {
+        guard currentStopIndex < stops.count else { return }
+        let nextName = stops[currentStopIndex].name
+        destinationToast = "Next: \(nextName)"
+        toastClearTask?.cancel()
+        toastClearTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 2_500_000_000)
+                self?.destinationToast = nil
+            } catch {
+                // Task was cancelled (new stop arrived) — leave the new toast visible
+            }
+        }
     }
 
     func navigateInMaps() {

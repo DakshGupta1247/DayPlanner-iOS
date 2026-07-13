@@ -28,7 +28,7 @@ struct LiveNavigationView: View {
             liveMap
                 .ignoresSafeArea()
 
-            // — GPS trust chip (top-left) —
+            // — GPS trust chip (top-left) + destination toast —
             VStack {
                 HStack {
                     LocationTrustChip(trust: viewModel.locationService.latestTrust)
@@ -36,8 +36,14 @@ struct LiveNavigationView: View {
                         .padding(.top, 60)
                     Spacer()
                 }
+                if let toast = viewModel.destinationToast {
+                    DestinationToastBanner(message: toast)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 Spacer()
             }
+            .animation(.spring(response: 0.4), value: viewModel.destinationToast)
             .zIndex(5)
 
             // — Overlaid bottom card —
@@ -125,13 +131,16 @@ struct LiveNavigationView: View {
 
     @ViewBuilder
     private var bottomOverlay: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             LiveProgressBar(viewModel: viewModel)
 
             if let stop = viewModel.currentStop {
                 LiveStopCard(
                     stop: stop,
                     stopLabel: viewModel.stopCountLabel,
+                    completedCount: viewModel.completedCount,
+                    totalCount: viewModel.totalCount,
+                    progressFraction: viewModel.progressFraction,
                     eta: viewModel.formattedETA,
                     arrivalTime: viewModel.formattedArrivalTime,
                     etaLoading: viewModel.etaIsLoading,
@@ -252,17 +261,30 @@ private struct LiveProgressBar: View {
     let viewModel: LiveNavigationViewModel
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { index, _ in
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(index < viewModel.currentStopIndex ? Color.green :
-                          index == viewModel.currentStopIndex ? Color.blue :
-                          Color.gray.opacity(0.25))
-                    .frame(height: 6)
-                    .animation(.easeInOut(duration: 0.3), value: viewModel.currentStopIndex)
+        VStack(spacing: 6) {
+            HStack {
+                Text("Stop \(viewModel.stopCountLabel)")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(viewModel.completedCount) completed")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 4)
+
+            HStack(spacing: 4) {
+                ForEach(Array(viewModel.stops.enumerated()), id: \.element.id) { index, _ in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(index < viewModel.currentStopIndex ? Color.green :
+                              index == viewModel.currentStopIndex ? Color.blue :
+                              Color.gray.opacity(0.25))
+                        .frame(height: 6)
+                        .animation(.easeInOut(duration: 0.3), value: viewModel.currentStopIndex)
+                }
+            }
+            .padding(.horizontal, 4)
         }
-        .padding(.horizontal, 4)
     }
 }
 
@@ -299,6 +321,9 @@ private struct ClosingVerdictRow: View {
 private struct LiveStopCard: View {
     let stop: Stop
     let stopLabel: String
+    let completedCount: Int
+    let totalCount: Int
+    let progressFraction: Double
     let eta: String
     let arrivalTime: String
     let etaLoading: Bool
@@ -317,9 +342,14 @@ private struct LiveStopCard: View {
                 // Stop header + ETA badge
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Stop \(stopLabel)".uppercased())
-                            .font(.caption2.bold())
-                            .foregroundStyle(.blue)
+                        HStack(spacing: 6) {
+                            Text("Next Destination".uppercased())
+                                .font(.caption2.bold())
+                                .foregroundStyle(.blue)
+                            Text("· \(stopLabel)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                         Text(stop.name)
                             .font(.headline)
                         Text(stop.address)
@@ -389,6 +419,28 @@ private struct LiveStopCard: View {
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20))
         .shadow(color: .black.opacity(0.12), radius: 16, y: -4)
+    }
+}
+
+// MARK: - Destination Toast Banner
+
+private struct DestinationToastBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.right.circle.fill")
+                .foregroundStyle(.blue)
+                .font(.subheadline)
+            Text(message)
+                .font(.subheadline.bold())
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .clipShape(Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
     }
 }
 
