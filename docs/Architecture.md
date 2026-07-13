@@ -30,15 +30,21 @@ Services/
   PlaceSearchService.swift      — MKLocalSearch with debounce
   NavigationService.swift       — Apple Maps URL launcher + MKDirections steps
   TripHistoryService.swift      — JSON read/write to Documents folder (per-profile)
-  LocationService.swift         — CLLocationManager wrapper; trustedLocationStream (validated fixes)
+  LocationProviding.swift       — Protocol abstracting GPS delivery (real vs. GPX replay)
+  LocationService.swift         — CLLocationManager wrapper; conforms to LocationProviding
   LocationIntegrityGate.swift   — actor; validates GPS fixes (accuracy, staleness, teleport)
   ETAEngine.swift               — EMA speed smoother, ETAResult, ClosingTimeVerdict
+  GPXParser.swift               — XMLParser-based .gpx file decoder → [CLLocation]
+  GPXReplayProvider.swift       — Replays a .gpx file as live GPS (DEBUG builds, 6× speed)
   StopsLoader.swift             — Decodes Resources/stops.json into [Stop] with openUntil dates
   ProfileService.swift          — Profile CRUD, active profile, per-profile isolation
   NotificationService.swift     — UNUserNotificationCenter, evening + morning reminders
 
+AppEnvironment.swift            — #if DEBUG → GPXReplayProvider, else → LocationService
+
 Resources/
   stops.json                    — 6 bundled Delhi landmarks with openUntil "HH:mm" fields
+  demo-route.gpx                — 40-point GPX route: CP → India Gate → Humayun's Tomb → Lotus Temple → Qutub Minar → Red Fort
 
 ViewModels/
   HomeViewModel.swift           — Plans list, FAB state, edit/delete, notification scheduling
@@ -47,7 +53,7 @@ ViewModels/
   RouteOptimizerViewModel.swift — RouteState, GPS integration, edit mode, re-optimise
   ItineraryViewModel.swift      — Cascading arrival times, start time, minute overrides
   NavigationViewModel.swift     — Stop progression, step fetching from MKDirections
-  LiveNavigationViewModel.swift — Real-time GPS, ETAEngine, auto-arrival at 25m, monotonic crossing
+  LiveNavigationViewModel.swift — Real-time GPS, ETAEngine, auto-arrival at 100m, monotonic crossing, routeCalcInFlight guard, destination toast, progress counters
   TripHistoryViewModel.swift    — Grouped history list, delete
   (Settings has no ViewModel — uses @AppStorage directly)
 
@@ -61,7 +67,7 @@ Features/
   TripDetail/     TripDetailView
   RouteOptimizer/ RouteOptimizerView (map, bottom card, edit sheet, toasts)
   Itinerary/      ItineraryView, TimelineRow, StopCard, StartTimePicker
-  Navigation/     NavigationView, LiveNavigationView
+  Navigation/     NavigationView, LiveNavigationView, DayCompleteView
   TripHistory/    TripHistoryView
   Settings/       SettingsView
 
@@ -100,8 +106,8 @@ All async work (MKDirections, MKLocalSearch, CLLocationManager) uses Swift async
 ### .task modifier
 Preferred over `.onAppear + Task {}`. Automatically cancels async work if the view disappears.
 
-### withObservationTracking
-Used in `LiveNavigationViewModel` to observe `LocationService.currentLocation` changes without Combine — the modern @Observable equivalent of `sink`.
+### AsyncStream single-consumer pattern
+`LiveNavigationViewModel` uses a single `for await location in locationService.trustedLocationStream` loop for all location-driven work. `AsyncStream` only supports one active consumer — a second `Task` consuming the same stream starves the first. All camera updates, ETA refreshes, and arrival detection run in this one loop. Route recalculation is spawned as a separate fire-and-forget task so the loop is never blocked by network calls.
 
 ---
 
@@ -133,31 +139,37 @@ User taps "View Route"
 ## Data Flow: Live Navigation
 
 ```
-CLLocationManager (hardware GPS, fires every 10m)
-  → LocationService.currentLocation updates (@Observable)
-  → LocationIntegrityGate.validate() — checks accuracy, staleness, teleport speed
-      ├── .trusted / .degraded → emitted on trustedLocationStream
-      └── .untrusted → dropped silently
-  → LocationService.latestTrust (@Observable) → LocationTrustChip in UI (🟢/🟡/🔴)
+LocationProviding (protocol)
+  ├── DEBUG build → GPXReplayProvider: replays demo-route.gpx at 6× speed (~5s/fix)
+  └── Release build → LocationService: CLLocationManager → LocationIntegrityGate.validate()
+        ├── .trusted / .degraded → emitted on trustedLocationStream
+        └── .untrusted → dropped silently
 
-trustedLocationStream (AsyncStream<CLLocation>) consumed by breadcrumb loop:
+trustedLocationStream (AsyncStream<CLLocation>) — single consumer loop in LiveNavigationViewModel:
   → ETAEngine.update(newLocation:) — EMA speed smoothing (α=0.3)
-  → ETAEngine.eta(to:from:) — returns ETAResult (durationSeconds, arrivalTime, distanceMeters)
-  → ClosingTimeVerdict — compared against stop.openUntil (makeIt / cuttingClose / wontMakeIt)
-
-withObservationTracking loop (currentLocation):
-  → handleLocationUpdate(location)
+  → refreshSpeedETA(from:) → ETAResult (durationSeconds, arrivalTime, distanceMeters)
+  → handleLocationUpdate(location) [synchronous]:
       ├── MapCamera: tilted 3D, follows heading, 800m altitude
-      ├── Check distance to currentStop < 25m
+      ├── Check distance to currentStop < 100m
       │   AND stop.id not in crossedStopIDs (monotonic guard)
       │   → crossedStopIDs.insert(stop.id) + showingArrivalBanner = true
-      └── if moved 50m+ from lastRouteCalcLocation:
+      └── if moved 150m+ from lastRouteCalcLocation AND !routeCalcInFlight:
+          → spawn routeCalcTask (fire-and-forget, does NOT block the location loop)
+          → routeCalcInFlight = true
           → MKDirections from current GPS → next stop
+          → guard generation == routeCalcGeneration (discard if stop advanced)
           → livePolyline + etaSeconds updated
-            → LiveNavigationView re-renders map + ETA card
+          → routeCalcInFlight = false
+
+markCurrentStopArrived():
+  → currentStopIndex += 1
+  → routeCalcGeneration += 1  (invalidates any in-flight MKDirections response)
+  → clears livePolyline, etaSeconds, etaResult, etaIsLoading
+  → showDestinationToast() → "Next: <stop name>" pill, auto-dismisses 2.5s
+  → checkIfDayComplete() → 0.8s delay → isDayComplete = true → DayCompleteView (fullScreenCover)
 
 1s Timer:
-  → refreshSpeedETA(from: currentLocation) → updates etaResult for arrival time display
+  → refreshSpeedETA(from: currentLocation) → keeps arrival time display current
 ```
 
 ## Data Flow: Re-optimise After Stop Reached

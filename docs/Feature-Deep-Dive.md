@@ -795,12 +795,12 @@ Displayed in the stop card with icon + text (never color-only for accessibility)
 
 ---
 
-### Monotonic Stop Crossing (FR4)
+### Monotonic Stop Crossing
 
-`crossedStopIDs: Set<UUID>` in `LiveNavigationViewModel` ensures each stop can only trigger the arrival banner **once**, even if GPS bounces around the 25m radius:
+`crossedStopIDs: Set<UUID>` in `LiveNavigationViewModel` ensures each stop can only trigger the arrival banner **once**, even if GPS bounces around the 100m radius:
 
 ```swift
-if distanceToStop < 25,
+if distanceToStop < 100,
    !showingArrivalBanner,
    !crossedStopIDs.contains(stop.id) {
     crossedStopIDs.insert(stop.id)
@@ -808,28 +808,62 @@ if distanceToStop < 25,
 }
 ```
 
-Arrival radius was tightened from 50m → **25m** for more precise detection.
+Arrival radius is **100m** — chosen to work reliably with GPX trackpoints spaced ~200m apart.
 
 ---
 
 ### GPS observation pattern
-`LiveNavigationViewModel` uses `withObservationTracking` — the modern @Observable equivalent of Combine's `sink`:
+`LiveNavigationViewModel` uses a single `for await` loop on `locationService.trustedLocationStream`. `AsyncStream` supports only one active consumer — using two tasks on the same stream causes one to starve the other (a previous bug where arrival detection missed all GPX fixes).
 
 ```swift
-withObservationTracking {
-    _ = self.locationService.currentLocation
-} onChange: {
-    continuation.resume()
+trackingTask = Task { @MainActor [weak self] in
+    guard let self else { return }
+    for await location in self.locationService.trustedLocationStream {
+        guard !Task.isCancelled else { break }
+        self.etaEngine.update(newLocation: location)
+        self.refreshSpeedETA(from: location)
+        self.handleLocationUpdate(location)   // synchronous
+    }
 }
 ```
 
+### Route recalculation — fire-and-forget
+`handleLocationUpdate` is fully synchronous so the stream loop is never blocked. Route recalculation is spawned as a separate task with a `routeCalcInFlight` guard:
+
+```swift
+if shouldRecalculate && !routeCalcInFlight {
+    routeCalcInFlight = true
+    routeCalcTask = Task { [weak self] in
+        await self?.recalculateRoute(from: location, generation: generation)
+        // clears routeCalcInFlight on MainActor when done
+    }
+}
+```
+
+A `routeCalcGeneration` counter is incremented each time a stop is advanced. If MKDirections returns after the stop index has changed, the stale result is discarded.
+
+### Destination toast
+`markCurrentStopArrived()` calls `showDestinationToast()` which sets `destinationToast = "Next: <name>"` and auto-clears it after 2.5s via a cancellable Task. If another stop is marked before the timer fires, the previous toast is cancelled and a new one starts.
+
+### Progress tracking
+`LiveNavigationViewModel` exposes:
+- `completedCount: Int` — stops done
+- `totalCount: Int` — total stops in route
+- `progressFraction: Double` — 0.0–1.0
+- `stopCountLabel: String` — "2 of 6"
+
+These drive the `LiveProgressBar` header row and `LiveStopCard` label.
+
+### Day Complete
+When `currentStopIndex >= stops.count`, a 0.8s delay fires, then `isDayComplete = true` → `DayCompleteView` appears as a `fullScreenCover` with confetti, stats (stops completed, time taken, start/end time), and the full visited stop list.
+
 ### On each GPS update
 1. **Camera**: `MapCamera(centerCoordinate:distance:heading:pitch:)` — 3D tilted view at 800m, follows device heading
-2. **Auto-arrive**: `location.distance(from: stopLocation) < 25` + monotonic guard → `showingArrivalBanner = true`
-3. **Route recalc**: if moved 50m+ from `lastRouteCalcLocation` → new `MKDirections` call → updates `livePolyline` + `etaSeconds`
+2. **Auto-arrive**: `location.distance(from: stopLocation) < 100` + monotonic guard → `showingArrivalBanner = true`
+3. **Route recalc**: if moved 150m+ from `lastRouteCalcLocation` AND no calc in flight → new `MKDirections` call → updates `livePolyline` + `etaSeconds`
 
 ### Battery
-`locationService.stopTracking()` is called in `stopLiveTracking()` which fires when the view disappears. GPS runs only while the Live Navigation screen is visible.
+`locationService.stopTracking()` is called in `stopLiveTracking()` which fires when the view disappears. All tasks (tracking, routeCalc, toastClear) are cancelled. GPS runs only while the Live Navigation screen is visible.
 
 ---
 
@@ -1199,4 +1233,71 @@ This converts "17:00" to a `Date` representing 5:00 PM today, so `ETAEngine.verd
 
 ---
 
-*Last updated: July 2026 — covers all features through feature/fr-completion branch.*
+---
+
+## 24. GPX Replay System (Demo Mode)
+
+### What it does
+In DEBUG builds, replaces the real GPS with a scripted route replay from a `.gpx` file. Lets anyone test the full Live Navigation flow on a simulator or device without needing to physically drive to New Delhi.
+
+### Status
+✅ Implemented
+
+### Files
+- `LocationProviding.swift` — protocol all location providers conform to
+- `GPXParser.swift` — parses `.gpx` XML into `[CLLocation]`
+- `GPXReplayProvider.swift` — replays parsed fixes at configurable speed
+- `AppEnvironment.swift` — `#if DEBUG` switch between providers
+- `Resources/demo-route.gpx` — 40-point Delhi route at 30s spacing
+- `HomeViewModel.swift` — `loadDelhiDemoPlan()` (DEBUG only)
+- `HomeView.swift` — `DemoPlanBanner` (DEBUG only)
+
+### LocationProviding protocol
+```swift
+protocol LocationProviding: AnyObject {
+    var trustedLocationStream: AsyncStream<CLLocation> { get }
+    var currentLocation: CLLocation? { get }
+    var hasReceivedFirstFix: Bool { get }
+    var isDenied: Bool { get }
+    var isAuthorized: Bool { get }
+    var latestTrust: LocationTrust? { get }
+    func requestPermission()
+    func startTracking()
+    func stopTracking()
+}
+```
+Both `LocationService` (real GPS) and `GPXReplayProvider` conform to this. All ViewModels accept `LocationProviding` — they never need to know which implementation they're talking to.
+
+### GPXParser
+`struct GPXParser` with `static func parse(fileName:) async -> [CLLocation]` — runs on a `Task.detached` background thread via `XMLParser` delegate. Returns fixes sorted by timestamp, all with `horizontalAccuracy: 5.0` (always trusted by `LocationIntegrityGate`).
+
+### GPXReplayProvider
+`@Observable @MainActor` class. On init, starts a `replayTask` that:
+1. Parses the GPX file once
+2. Loops forever through all fixes
+3. Waits `realGap / speedMultiplier` between each fix (default 6.0 → ~5s between fixes)
+4. Yields each fix on `trustedLocationStream` and updates `currentLocation`
+
+`nonisolated(unsafe)` on `continuation` and `replayTask` allows `deinit` to cancel without a MainActor hop.
+
+### AppEnvironment
+```swift
+static let locationProvider: LocationProviding = {
+    #if DEBUG
+    return GPXReplayProvider(gpxFileName: "demo-route", speedMultiplier: 6.0)
+    #else
+    return LocationService()
+    #endif
+}()
+```
+Single shared instance — all ViewModels use `AppEnvironment.locationProvider` as the default.
+
+### Demo Route (demo-route.gpx)
+40 trackpoints at 30s intervals covering 6 Delhi landmarks in optimised order:
+Connaught Place → India Gate → Humayun's Tomb → Lotus Temple → Qutub Minar → Red Fort
+
+Each stop's exact GPS coordinate appears as a trackpoint so arrival detection fires naturally as the dot passes through.
+
+---
+
+*Last updated: July 2026 — covers all features through feature/demo-plan-button branch.*

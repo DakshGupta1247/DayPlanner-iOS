@@ -221,10 +221,15 @@ Real-time GPS tracking with a live route line from your current position to the 
 
 - 3D tilted map view (like Apple Maps navigation)
 - Blue dot showing your exact location, following your movement
-- Live route line updating every 50 metres
-- Live ETA recalculating as you move
-- Auto-arrival detection: when within 50m of a stop, "You've arrived!" banner slides in
-- Route re-optimises for remaining stops after each arrival
+- Live route polyline updates as you move (debounced, non-blocking)
+- Live ETA (minutes remaining + projected arrival time) recalculating as you move
+- Progress bar: shows "Stop X of Y" label + "N completed" count
+- Stop card shows "NEXT DESTINATION" with stop name, address, ETA
+- Auto-arrival detection: when within 100m of a stop, "You've arrived!" banner slides in
+- Tap "Mark Arrived" → destination toast ("Next: India Gate") slides in, stop card updates
+- Day Complete screen: confetti + stats + full visited stops list when all stops done
+
+**Simulator/Demo mode:** In DEBUG builds, a GPX file replays a Delhi route automatically — no real GPS needed. Tap "Load Delhi Demo" on the Home screen to try it.
 
 **GPS permission:** iOS asks "Allow PlanDay to use your location" on first use.
 
