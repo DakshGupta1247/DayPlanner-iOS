@@ -31,7 +31,7 @@ Plan a day visiting multiple places → get a GPS-aware optimised route → foll
 | FR6 | Navigation | ✅ | Stop-by-stop guidance with Apple Maps launcher |
 | FR7 | Trip History | ✅ | Auto-saved plans per profile, grouped history sheet |
 | FR8 | Settings | ✅ | Transport mode, appearance (light/dark/system), notifications, profiles |
-| FR9 | Live Navigation | ✅ | Real-time GPS, live ETA, auto-arrival detection at 50m |
+| FR9 | Live Navigation | ✅ | Real-time GPS, live polyline, ETA, auto-arrival detection, destination toast, trip complete screen |
 
 ### Upgrades & Improvements
 
@@ -49,6 +49,8 @@ Plan a day visiting multiple places → get a GPS-aware optimised route → foll
 | U10 | MinHeap Optimiser | ✅ | O(n log n) nearest-neighbour via binary min-heap |
 | U11 | Netflix Profiles | ✅ | Profile Creation on first launch, Profile Selection grid on every launch |
 | U12 | Live Theme Switching | ✅ | Light/Dark/System applied instantly from Settings sheet |
+| U13 | GPX Demo Replay | ✅ | `#if DEBUG` GPX replay provider, 6× speed, "Load Delhi Demo" one-tap button on Home |
+| U14 | Live Navigation Polish | ✅ | Destination toast, progress bar labels, fixed polyline/ETA delivery, stale-response guard |
 
 ## Architecture
 
@@ -59,21 +61,24 @@ DayPlanner/
 ├── Models/           # DayPlan, Trip, Stop, PlanItem, TravelMode, UserProfile
 ├── Services/         # RouteService, LocationService, TripHistoryService,
 │                     # ProfileService, NotificationService, PlaceSearchService,
-│                     # NavigationService, MinHeap
+│                     # NavigationService, MinHeap,
+│                     # GPXParser, GPXReplayProvider, LocationProviding,
+│                     # LocationIntegrityGate, ETAEngine
 ├── ViewModels/       # One ViewModel per screen / builder
 ├── Features/
 │   ├── Splash/       # SplashScreenView, WelcomeScreenView
 │   ├── Onboarding/   # OnboardingView, OnboardingPageView
-│   ├── Home/         # HomeView
+│   ├── Home/         # HomeView (+ #if DEBUG DemoPlanBanner)
 │   ├── Profiles/     # ProfileCreationView, ProfileSelectionView, ProfileSwitcherView
 │   ├── DayPlanBuilder/
 │   ├── TripBuilder/
 │   ├── TripDetail/
 │   ├── RouteOptimizer/
 │   ├── Itinerary/
-│   ├── Navigation/   # NavigationView, LiveNavigationView
+│   ├── Navigation/   # NavigationView, LiveNavigationView, DayCompleteView
 │   ├── TripHistory/
 │   └── Settings/
+├── Resources/        # stops.json, demo-route.gpx
 └── Components/       # TripSummaryCard, Color+Hex extension
 ```
 
@@ -87,6 +92,10 @@ DayPlanner/
 - **No Combine** — all async work uses Swift's native `async/await`
 - **`isVisited` excluded from Codable** — `Stop.isVisited` is a transient runtime flag; excluded via `CodingKeys` so existing saved JSON never breaks
 - **`.preferredColorScheme` on root** — applied at `SplashScreenView` (the true app root) and on every sheet so theme changes apply instantly everywhere
+- **`LocationProviding` protocol** — abstracts GPS so both `LocationService` (real GPS) and `GPXReplayProvider` (simulator replay) work identically with all ViewModels
+- **`AppEnvironment.locationProvider`** — single `#if DEBUG` switch; simulator always gets `GPXReplayProvider`, device always gets `LocationService`
+- **Single `AsyncStream` consumer** — `LiveNavigationViewModel` uses one `for await` loop for all location events; dual consumers caused stream starvation and missed arrival detections
+- **`routeCalcInFlight` flag** — prevents `MKDirections.calculate()` from being cancelled mid-flight on every GPS tick; only one route request runs at a time
 
 ## Running the App
 
@@ -100,47 +109,49 @@ DayPlanner/
 
 ## How to Run the GPX Demo
 
-> GPX replay only works on Simulator (DEBUG build). On a real iPhone, live GPS is used automatically instead.
+> GPX replay works on both Simulator and real device in DEBUG builds (run from Xcode). On a Release build, live GPS is used automatically.
 
 ### Steps
 
-1. Build and run on iPhone Simulator (iPhone 15 or later recommended)
+1. Build and run on iPhone/iPad Simulator (or real device via Xcode)
 
 2. On the Home Screen, tap the blue **"Load Delhi Demo Plan"** banner
    → 6 Delhi landmarks load instantly
    → Route Optimizer opens automatically
 
 3. Tap **"Optimise Route"**
-   → Stops reorder by nearest first
+   → Stops reorder by nearest-neighbour order: CP → India Gate → Humayun's Tomb → Lotus Temple → Qutub Minar → Red Fort
    → Blue polyline appears on map
 
-4. Tap **"Start Navigation"**
-   → GPX replay begins automatically
+4. Tap **"Start Day"**
+   → GPX replay begins automatically (~5s per dot movement at 6× speed)
    → Blue dot starts moving through Delhi
-   → ETA updates every second
+   → Live polyline + ETA appears within ~5–10 seconds
+   → Progress bar shows "Stop 1 of 6" + "0 completed"
    → Trust chip shows 🟢 GPS Good
-   → Stops grey out as route passes through
 
-5. Watch the full demo run by itself
-   → All 6 stops covered automatically
-   → Completion screen appears at the end
+5. When the dot gets within 100m of a stop:
+   → Green "You've arrived!" banner slides in from top
+   → Tap "Mark Arrived" → stop card updates, "Next: India Gate" toast slides in
 
-### Stops in the Demo Route
+6. Repeat for all 6 stops → Day Complete screen with confetti appears
+
+### Stops in the Demo Route (GPX order)
 
 | # | Place | Closes |
 |---|-------|--------|
 | 1 | Connaught Place | 21:00 |
-| 2 | Red Fort | 17:30 |
-| 3 | India Gate | 22:00 |
-| 4 | Humayun's Tomb | 18:00 |
-| 5 | Lotus Temple | 17:30 |
-| 6 | Qutub Minar | 17:00 |
+| 2 | India Gate | 22:00 |
+| 3 | Humayun's Tomb | 18:00 |
+| 4 | Lotus Temple | 17:30 |
+| 5 | Qutub Minar | 17:00 |
+| 6 | Red Fort | 17:30 |
 
 ### Debug Bypass Note
 
 The `#if DEBUG` flag in `AppEnvironment.swift` automatically switches between:
-- **Simulator** → `GPXReplayProvider` (fake GPS from `demo-route.gpx`)
-- **Real iPhone** → `LocationService` (real live GPS)
+- **DEBUG (Xcode run)** → `GPXReplayProvider` (fake GPS from `demo-route.gpx`, 6× speed)
+- **Release build** → `LocationService` (real live GPS)
 
 No manual configuration needed.
 
@@ -156,6 +167,8 @@ Feature branches → develop for testing → main for release.
 
 | Branch | Description |
 |---|---|
+| `feature/demo-plan-button` | GPX replay infra, Delhi demo plan, live navigation polish (polyline/ETA fix, destination toast, progress labels) |
+| `feature/gpx-replay` | `LocationProviding` protocol, `GPXParser`, `GPXReplayProvider`, `AppEnvironment`, `demo-route.gpx` |
 | `feature/ui-improvements-v2` | App icon fix, splash tagline, empty state CTA, Netflix profiles |
 | `feature/drag-to-reorder-route` | Drag-to-reorder stops, Recalculate button, success toast |
 | `feature/gps-route-optimisation` | GPS start point, re-optimise on stop reached, MinHeap |
