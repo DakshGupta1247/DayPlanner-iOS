@@ -47,6 +47,15 @@ struct HomeView: View {
                                 .padding(.bottom, 28)
                         }
 
+                        // — Demo Banner (DEBUG / Simulator only) —
+                        #if DEBUG
+                        DemoPlanBanner {
+                            viewModel.loadDelhiDemoPlan()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 20)
+                        #endif
+
                         // — All Plans —
                         SectionHeader(title: "All Plans", symbol: "calendar", color: .secondary)
                             .padding(.horizontal, 20)
@@ -92,6 +101,11 @@ struct HomeView: View {
                 }
                 .onAppear { viewModel.reload() }
                 .onChange(of: profileService.activeProfile?.id) { viewModel.reload() }
+                #if DEBUG
+                .navigationDestination(item: $viewModel.demoNavigationPlan) { plan in
+                    RouteOptimizerView(dayPlan: plan)
+                }
+                #endif
 
                 // — FAB overlay —
                 FABMenu(viewModel: viewModel)
@@ -594,5 +608,51 @@ private struct ProfileAvatarButton: View {
         }
     }
 }
+
+// MARK: - Demo Plan Banner (DEBUG only)
+
+#if DEBUG
+private struct DemoPlanBanner: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 14) {
+                Image(systemName: "map.fill")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                    .frame(width: 36, height: 36)
+                    .background(.blue.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Load Delhi Demo Plan")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text("6 stops · GPX replay ready")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.blue.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.blue.opacity(0.25), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif
 
 #Preview { HomeView() }

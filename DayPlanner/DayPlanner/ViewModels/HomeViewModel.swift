@@ -30,6 +30,9 @@ final class HomeViewModel {
     // Delete confirmation
     var itemPendingDelete: PlanItem? = nil
 
+    // Demo plan navigation — set to trigger RouteOptimizerView push
+    var demoNavigationPlan: DayPlan? = nil
+
     init() {
         items = TripHistoryService.shared.loadAll()
     }
@@ -99,6 +102,33 @@ final class HomeViewModel {
             isFABMenuOpen.toggle()
         }
     }
+
+    // MARK: - Demo Plan
+
+    #if DEBUG
+    private static let demoName = "Demo — New Delhi"
+
+    func loadDelhiDemoPlan() {
+        // If a demo plan already exists, open it rather than creating a duplicate.
+        if let existing = items.compactMap({ if case .singleDay(let p) = $0 { return p } else { return nil } })
+                                .first(where: { $0.name == Self.demoName }) {
+            demoNavigationPlan = existing
+            return
+        }
+
+        let stops = StopsLoader.loadBundledStops()
+        var plan  = DayPlan(name: Self.demoName, date: .now, stops: stops, travelMode: .driving)
+        // Trim to first 6 stops only (stops.json may have 8 with edge-case entries)
+        plan.stops = Array(stops.prefix(6))
+        saveDayPlan(plan)
+        // After save, reload and navigate to the freshly-created plan
+        reload()
+        if let created = items.compactMap({ if case .singleDay(let p) = $0 { return p } else { return nil } })
+                               .first(where: { $0.name == Self.demoName }) {
+            demoNavigationPlan = created
+        }
+    }
+    #endif
 
     // MARK: - Edit helpers
 
