@@ -82,7 +82,25 @@ struct LiveNavigationView: View {
             locationDeniedView
         } else {
             Map(position: $viewModel.cameraPosition) {
-                UserAnnotation()
+                // Use a custom annotation driven by the location provider (works with
+                // both real GPS and GPXReplayProvider) instead of UserAnnotation which
+                // only tracks the simulator's built-in location — not the GPX replay.
+                if let loc = viewModel.locationService.currentLocation {
+                    Annotation("", coordinate: loc.coordinate) {
+                        ZStack {
+                            Circle()
+                                .fill(.blue.opacity(0.25))
+                                .frame(width: 28, height: 28)
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 16, height: 16)
+                            Circle()
+                                .fill(.blue)
+                                .frame(width: 12, height: 12)
+                        }
+                        .shadow(radius: 3)
+                    }
+                }
 
                 if let polyline = viewModel.livePolyline {
                     MapPolyline(polyline)
